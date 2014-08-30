@@ -506,7 +506,7 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 		pass_crypt=\$(perl -e 'print crypt(\$ARGV[0], "rcn-ee-salt")' ${password})
 
 		useradd -G "\${default_groups}" -s /bin/bash -m -p \${pass_crypt} -c "${full_name}" ${user_name}
-
+		sudo chage -d 0 ${user_name}
 		case "\${distro}" in
 		Debian)
 			echo "default username:password is [${user_name}:${password}]" >> /etc/issue
@@ -573,12 +573,12 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 
 			if [ -f /usr/bin/git ] ; then
 				mkdir -p /opt/scripts/ || true
-				qemu_command="git clone https://github.com/RobertCNelson/boot-scripts /opt/scripts/ --depth 1 || true"
+				qemu_command="git clone https://github.com/jimmyken793/boot-scripts /opt/scripts/ --depth 1 || true"
 				qemu_warning
-				git clone https://github.com/RobertCNelson/boot-scripts /opt/scripts/ --depth 1 || true
+				git clone https://github.com/jimmyken793/boot-scripts /opt/scripts/ --depth 1 || true
 				sync
 				if [ -f /opt/scripts/.git/config ] ; then
-					echo "/opt/scripts/ : https://github.com/RobertCNelson/boot-scripts" >> /opt/source/list.txt
+					echo "/opt/scripts/ : https://github.com/jimmyken793/boot-scripts" >> /opt/source/list.txt
 					chown -R ${user_name}:${user_name} /opt/scripts/
 				fi
 			fi
@@ -610,6 +610,11 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 		if [ -d /var/run/ ] ; then
 			rm -rf /var/run/* || true
 		fi
+	}
+
+	install_rvm (){
+		curl -sSL https://get.rvm.io | sudo -Hu ${user_name} bash -s stable
+		sudo -Hu jimmy bash -c "source ~jimmy/.rvm/scripts/rvm;rvm install 2.1.0"
 	}
 
 	#cat /chroot_script.sh
@@ -645,6 +650,8 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 		dpkg_package_missing
 	fi
 
+	install_rvm
+	
 	cleanup
 	rm -f /chroot_script.sh || true
 __EOF__
@@ -699,6 +706,10 @@ if [ "x${chroot_generic_startup_scripts}" = "xenable" ] ; then
 		exit 1
 	fi
 fi
+
+
+git clone https://github.com/libusb/libusb.git ${tempdir}/tmp/libusb
+git clone git@github.com:jimmyken793/hidapi.git ${tempdir}/tmp/hidapi
 
 if [ -n "${chroot_script}" -a -r "${DIR}/target/chroot/${chroot_script}" ] ; then
 	report_size
