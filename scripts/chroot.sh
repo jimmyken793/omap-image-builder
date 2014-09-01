@@ -23,6 +23,7 @@
 DIR=$PWD
 host_arch="$(uname -m)"
 time=$(date +%Y-%m-%d)
+OIB_DIR="$(dirname "$( cd "$(dirname "$0")" ; pwd -P )" )"
 
 . ${DIR}/.project
 
@@ -37,18 +38,18 @@ check_defines () {
 		exit 1
 	fi
 
-	if [ ! "${distro}" ] ; then
-		echo "scripts/deboostrap_first_stage.sh: Error: distro undefined"
+	if [ ! "${deb_distribution}" ] ; then
+		echo "scripts/deboostrap_first_stage.sh: Error: deb_distribution undefined"
 		exit 1
 	fi
 
-	if [ ! "${release}" ] ; then
-		echo "scripts/deboostrap_first_stage.sh: Error: release undefined"
+	if [ ! "${deb_codename}" ] ; then
+		echo "scripts/deboostrap_first_stage.sh: Error: deb_codename undefined"
 		exit 1
 	fi
 
-	if [ ! "${dpkg_arch}" ] ; then
-		echo "scripts/deboostrap_first_stage.sh: Error: dpkg_arch undefined"
+	if [ ! "${deb_arch}" ] ; then
+		echo "scripts/deboostrap_first_stage.sh: Error: deb_arch undefined"
 		exit 1
 	fi
 
@@ -56,41 +57,70 @@ check_defines () {
 		apt_proxy=""
 	fi
 
-	if [ ! "${deb_mirror}" ] ; then
-		case "${distro}" in
-		debian)
-			deb_mirror="ftp.us.debian.org/debian/"
-			;;
-		ubuntu)
-			deb_mirror="ports.ubuntu.com/ubuntu-ports/"
-			;;
-		esac
+	case "${deb_distribution}" in
+	debian)
+		deb_components=${deb_components:-"main contrib non-free"}
+		deb_mirror=${deb_mirror:-"ftp.us.debian.org/debian/"}
+		;;
+	ubuntu)
+		deb_components=${deb_components:-"main universe multiverse"}
+		deb_mirror=${deb_mirror:-"ports.ubuntu.com/ubuntu-ports/"}
+		;;
+	esac
+
+	if [ ! "${rfs_username}" ] ; then
+		##Backwards compat pre variables.txt doc
+		if [ "${user_name}" ] ; then
+			rfs_username="${user_name}"
+		else
+			rfs_username="${deb_distribution}"
+			echo "rfs_username: undefined using: [${rfs_username}]"
+		fi
 	fi
 
-	if [ ! "${deb_components}" ] ; then
-		case "${distro}" in
-		debian)
-			deb_components="main contrib non-free"
-			;;
-		ubuntu)
-			deb_components="main universe multiverse"
-			;;
-		esac
+	if [ ! "${rfs_fullname}" ] ; then
+		##Backwards compat pre variables.txt doc
+		if [ "${full_name}" ] ; then
+			rfs_fullname="${full_name}"
+		else
+			rfs_fullname="Demo User"
+			echo "rfs_fullname: undefined using: [${rfs_fullname}]"
+		fi
 	fi
 
-	if [ ! "${user_name}" ] ; then
-		user_name="${distro}"
-		echo "user_name: undefined using: [${user_name}]"
+	if [ ! "${rfs_password}" ] ; then
+		##Backwards compat pre variables.txt doc
+		if [ "${password}" ] ; then
+			rfs_password="${password}"
+		else
+			rfs_password="temppwd"
+			echo "rfs_password: undefined using: [${rfs_password}]"
+		fi
 	fi
 
-	if [ ! "${password}" ] ; then
-		password="temppwd"
-		echo "password: undefined using: [${password}]"
+	if [ ! "${rfs_hostname}" ] ; then
+		##Backwards compat pre variables.txt doc
+		if [ "${image_hostname}" ] ; then
+			rfs_hostname="${image_hostname}"
+		else
+			rfs_hostname="arm"
+			echo "rfs_hostname: undefined using: [${rfs_hostname}]"
+		fi
 	fi
 
-	if [ ! "${full_name}" ] ; then
-		full_name="Demo User"
-		echo "full_name: undefined using: [${full_name}]"
+	if [ "x${deb_additional_pkgs}" = "x" ] ; then
+		##Backwards compat pre configs
+		if [ ! "x${base_pkg_list}" = "x" ] ; then
+			deb_additional_pkgs="$(echo ${base_pkg_list} | sed 's/,/ /g')"
+		fi
+	else
+		deb_additional_pkgs="$(echo ${deb_additional_pkgs} | sed 's/,/ /g')"
+	fi
+
+	if [ "x${repo_rcnee}" = "xenable" ] ; then
+		if [ ! "x${repo_rcnee_pkg_list}" = "x" ] ; then
+			deb_additional_pkgs="${deb_additional_pkgs} ${repo_rcnee_pkg_list}"
+		fi
 	fi
 }
 
@@ -152,15 +182,17 @@ if [ "x${chroot_very_small_image}" = "xenable" ] ; then
 	sudo mkdir -p ${tempdir}/etc/dpkg/dpkg.cfg.d/ || true
 	echo "# Delete locales" > /tmp/01_nodoc
 	echo "path-exclude=/usr/share/locale/*" >> /tmp/01_nodoc
-	echo "path-include=/usr/share/locale/en*" >> /tmp/01_nodoc
 	echo ""  >> /tmp/01_nodoc
+
 	echo "# Delete man pages" >> /tmp/01_nodoc
 	echo "path-exclude=/usr/share/man/*" >> /tmp/01_nodoc
 	echo "" >> /tmp/01_nodoc
+
 	echo "# Delete docs" >> /tmp/01_nodoc
 	echo "path-exclude=/usr/share/doc/*" >> /tmp/01_nodoc
 	echo "path-include=/usr/share/doc/*/copyright" >> /tmp/01_nodoc
 	echo "" >> /tmp/01_nodoc
+
 	sudo mv /tmp/01_nodoc ${tempdir}/etc/dpkg/dpkg.cfg.d/01_nodoc
 
 	sudo mkdir -p ${tempdir}/etc/apt/apt.conf.d/ || true
@@ -180,6 +212,21 @@ if [ "x${chroot_very_small_image}" = "xenable" ] ; then
 	report_size
 fi
 
+
+sudo mkdir -p ${tempdir}/etc/dpkg/dpkg.cfg.d/ || true
+
+echo "# neuter flash-kernel" > /tmp/01_noflash_kernel
+echo "path-exclude=/usr/share/flash-kernel/db/all.db" >> /tmp/01_noflash_kernel
+echo "path-exclude=/etc/initramfs/post-update.d/flash-kernel" >> /tmp/01_noflash_kernel
+echo "path-exclude=/etc/kernel/postinst.d/zz-flash-kernel" >> /tmp/01_noflash_kernel
+echo "path-exclude=/etc/kernel/postrm.d/zz-flash-kernel" >> /tmp/01_noflash_kernel
+echo ""  >> /tmp/01_noflash_kernel
+
+sudo mv /tmp/01_noflash_kernel ${tempdir}/etc/dpkg/dpkg.cfg.d/01_noflash_kernel
+
+sudo mkdir -p ${tempdir}/usr/share/flash-kernel/db/ || true
+sudo cp -v ${OIB_DIR}/target/other/rcn-ee.db ${tempdir}/usr/share/flash-kernel/db/
+
 #generic apt.conf tweaks for flash/mmc devices to save on wasted space...
 sudo mkdir -p ${tempdir}/etc/apt/apt.conf.d/ || true
 
@@ -191,43 +238,67 @@ sudo mv /tmp/02compress-indexes ${tempdir}/etc/apt/apt.conf.d/02compress-indexes
 #set initial 'seed' time...
 sudo sh -c "date --utc \"+%4Y%2m%2d%2H%2M\" > ${tempdir}/etc/timestamp"
 
-case "${release}" in
-wheezy)
-	echo "deb http://${deb_mirror} ${release} ${deb_components}" > /tmp/sources.list
-	echo "#deb-src http://${deb_mirror} ${release} ${deb_components}" >> /tmp/sources.list
-	echo "" >> /tmp/sources.list
-	echo "deb http://${deb_mirror} ${release}-updates ${deb_components}" >> /tmp/sources.list
-	echo "#deb-src http://${deb_mirror} ${release}-updates ${deb_components}" >> /tmp/sources.list
-	echo "" >> /tmp/sources.list
-	echo "deb http://security.debian.org/ ${release}/updates ${deb_components}" >> /tmp/sources.list
-	echo "#deb-src http://security.debian.org/ ${release}/updates ${deb_components}" >> /tmp/sources.list
-	echo "" >> /tmp/sources.list
-	echo "#deb http://ftp.debian.org/debian ${release}-backports ${deb_components}" >> /tmp/sources.list
-	echo "##deb-src http://ftp.debian.org/debian ${release}-backports ${deb_components}" >> /tmp/sources.list
-	if [ "x${chroot_enable_bborg_repo}" = "xenable" ] ; then
-		echo "" >> /tmp/sources.list
-		echo "deb [arch=armhf] http://beagle.s3.amazonaws.com/debian ${release}-bbb main" >> /tmp/sources.list
-		echo "#deb-src [arch=armhf] http://beagle.s3.amazonaws.com/debian ${release}-bbb main" >> /tmp/sources.list
-	fi
+wfile="/tmp/sources.list"
+echo "deb http://${deb_mirror} ${deb_codename} ${deb_components}" > ${wfile}
+echo "#deb-src http://${deb_mirror} ${deb_codename} ${deb_components}" >> ${wfile}
+echo "" >> ${wfile}
+
+case "${deb_codename}" in
+jessie|sid)
+	echo "#deb http://${deb_mirror} ${deb_codename}-updates ${deb_components}" >> ${wfile}
+	echo "##deb-src http://${deb_mirror} ${deb_codename}-updates ${deb_components}" >> ${wfile}
 	;;
-precise|quantal|raring|saucy)
-	echo "deb http://${deb_mirror} ${release} ${deb_components}" > /tmp/sources.list
-	echo "#deb-src http://${deb_mirror} ${release} ${deb_components}" >> /tmp/sources.list
-	echo "" >> /tmp/sources.list
-	echo "deb http://${deb_mirror} ${release}-updates ${deb_components}" >> /tmp/sources.list
-	echo "#deb-src http://${deb_mirror} ${release}-updates ${deb_components}" >> /tmp/sources.list
-	;;
-jessie|sid|trusty)
-	echo "deb http://${deb_mirror} ${release} ${deb_components}" > /tmp/sources.list
-	echo "#deb-src http://${deb_mirror} ${release} ${deb_components}" >> /tmp/sources.list
-	echo "" >> /tmp/sources.list
-	echo "#deb http://${deb_mirror} ${release}-updates ${deb_components}" >> /tmp/sources.list
-	echo "##deb-src http://${deb_mirror} ${release}-updates ${deb_components}" >> /tmp/sources.list
+*)
+	echo "deb http://${deb_mirror} ${deb_codename}-updates ${deb_components}" >> ${wfile}
+	echo "#deb-src http://${deb_mirror} ${deb_codename}-updates ${deb_components}" >> ${wfile}
 	;;
 esac
 
+case "${deb_codename}" in
+wheezy)
+	echo "" >> ${wfile}
+	echo "deb http://security.debian.org/ ${deb_codename}/updates ${deb_components}" >> ${wfile}
+	echo "#deb-src http://security.debian.org/ ${deb_codename}/updates ${deb_components}" >> ${wfile}
+	echo "" >> ${wfile}
+	if [ "x${chroot_enable_debian_backports}" = "xenable" ] ; then
+		echo "deb http://ftp.debian.org/debian ${deb_codename}-backports ${deb_components}" >> ${wfile}
+		echo "#deb-src http://ftp.debian.org/debian ${deb_codename}-backports ${deb_components}" >> ${wfile}
+	else
+		echo "#deb http://ftp.debian.org/debian ${deb_codename}-backports ${deb_components}" >> ${wfile}
+		echo "##deb-src http://ftp.debian.org/debian ${deb_codename}-backports ${deb_components}" >> ${wfile}
+	fi
+	;;
+esac
+
+if [ "x${repo_external}" = "xenable" ] ; then
+	echo "" >> ${wfile}
+	echo "deb [arch=${repo_external_arch}] ${repo_external_server} ${repo_external_dist} ${repo_external_components}" >> ${wfile}
+	echo "#deb-src [arch=${repo_external_arch}] ${repo_external_server} ${repo_external_dist} ${repo_external_components}" >> ${wfile}
+fi
+
+if [ "x${repo_rcnee}" = "xenable" ] ; then
+	#no: precise
+	echo "" >> ${wfile}
+	echo "#Kernel source (repos.rcn-ee.net) : https://github.com/RobertCNelson/linux-stable-rcn-ee" >> ${wfile}
+	echo "#" >> ${wfile}
+	echo "#git clone https://github.com/RobertCNelson/linux-stable-rcn-ee" >> ${wfile}
+	echo "#cd ./linux-stable-rcn-ee" >> ${wfile}
+	echo "#git fetch --tags" >> ${wfile}
+	echo "#git checkout \`uname -r\` -b tmp" >> ${wfile}
+	echo "#" >> ${wfile}
+	echo "deb [arch=armhf] http://repos.rcn-ee.net/${deb_distribution}/ ${deb_codename} main" >> ${wfile}
+
+	sudo cp -v ${OIB_DIR}/target/keyring/repos.rcn-ee.net-archive-keyring.asc ${tempdir}/tmp/repos.rcn-ee.net-archive-keyring.asc
+fi
+
 if [ -f /tmp/sources.list ] ; then
 	sudo mv /tmp/sources.list ${tempdir}/etc/apt/sources.list
+fi
+
+if [ "x${repo_external}" = "xenable" ] ; then
+	if [ ! "x${repo_external_key}" = "x" ] ; then
+		sudo cp -v ${OIB_DIR}/target/keyring/${repo_external_key} ${tempdir}/tmp/${repo_external_key}
+	fi
 fi
 
 if [ "${apt_proxy}" ] ; then
@@ -236,47 +307,24 @@ if [ "${apt_proxy}" ] ; then
 fi
 
 echo "127.0.0.1       localhost" > /tmp/hosts
-echo "127.0.1.1       ${image_hostname}" >> /tmp/hosts
+echo "127.0.1.1       ${rfs_hostname}" >> /tmp/hosts
 sudo mv /tmp/hosts ${tempdir}/etc/hosts
 
-echo "${image_hostname}" > /tmp/hostname
+echo "${rfs_hostname}" > /tmp/hostname
 sudo mv /tmp/hostname ${tempdir}/etc/hostname
 
-case "${distro}" in
+case "${deb_distribution}" in
 debian)
-	sudo cp ${DIR}/target/init_scripts/generic-debian.sh ${tempdir}/etc/init.d/boot_scripts.sh
-	sudo cp ${DIR}/target/init_scripts/capemgr-debian.sh ${tempdir}/etc/init.d/capemgr.sh
-	sudo cp ${DIR}/target/init_scripts/capemgr ${tempdir}/etc/default/
-
-	#Backward compatibility, as setup_sdcard.sh expects [lsb_release -si > /etc/rcn-ee.conf]
-	echo "distro=Debian" > /tmp/rcn-ee.conf
-	sudo mv /tmp/rcn-ee.conf ${tempdir}/etc/rcn-ee.conf
-
+	sudo cp ${OIB_DIR}/target/init_scripts/generic-${deb_distribution}.sh ${tempdir}/etc/init.d/generic-boot-script.sh
+	sudo cp ${OIB_DIR}/target/init_scripts/capemgr-${deb_distribution}.sh ${tempdir}/etc/init.d/capemgr.sh
+	sudo cp ${OIB_DIR}/target/init_scripts/capemgr ${tempdir}/etc/default/
+	distro="Debian"
 	;;
 ubuntu)
-	sudo cp ${DIR}/target/init_scripts/generic-ubuntu.conf ${tempdir}/etc/init/boot_scripts.conf
-
-	wfile="flash-kernel.conf"
-	cat > /tmp/${wfile} <<-__EOF__
-		#!/bin/sh -e
-		UBOOT_PART=/dev/mmcblk0p1
-
-		echo "flash-kernel stopped by: /etc/${wfile}"
-		USE_CUSTOM_KERNEL=1
-
-		if [ "\${USE_CUSTOM_KERNEL}" ] ; then
-		        DIST=\$(lsb_release -cs)
-
-		        case "\${DIST}" in
-		        oneiric|precise|quantal|raring|saucy|trusty)
-		                FLASH_KERNEL_SKIP=yes
-		                ;;
-		        esac
-		fi
-
-	__EOF__
-
-	sudo mv /tmp/${wfile} ${tempdir}/etc/${wfile}
+	sudo cp ${OIB_DIR}/target/init_scripts/generic-${deb_distribution}.conf ${tempdir}/etc/init/generic-boot-script.conf
+	sudo cp ${OIB_DIR}/target/init_scripts/capemgr-${deb_distribution}.sh ${tempdir}/etc/init/capemgr.sh
+	sudo cp ${OIB_DIR}/target/init_scripts/capemgr ${tempdir}/etc/default/
+	distro="Ubuntu"
 
 	if [ -f ${tempdir}/etc/init/failsafe.conf ] ; then
 		#Ubuntu: with no ethernet cable connected it can take up to 2 mins to login, removing upstart sleep calls..."
@@ -284,13 +332,15 @@ ubuntu)
 		sudo sed -i -e 's:sleep 40:#sleep 40:g' ${tempdir}/etc/init/failsafe.conf
 		sudo sed -i -e 's:sleep 59:#sleep 59:g' ${tempdir}/etc/init/failsafe.conf
 	fi
-
-	#Backward compatibility, as setup_sdcard.sh expects [lsb_release -si > /etc/rcn-ee.conf]
-	echo "distro=Ubuntu" > /tmp/rcn-ee.conf
-	sudo mv /tmp/rcn-ee.conf ${tempdir}/etc/rcn-ee.conf
-
 	;;
 esac
+
+#Backward compatibility, as setup_sdcard.sh expects [lsb_release -si > /etc/rcn-ee.conf]
+echo "distro=${distro}" > /tmp/rcn-ee.conf
+echo "rfs_username=${rfs_username}" >> /tmp/rcn-ee.conf
+echo "release_date=${time}" >> /tmp/rcn-ee.conf
+echo "third_party_modules=${third_party_modules}" >> /tmp/rcn-ee.conf
+sudo mv /tmp/rcn-ee.conf ${tempdir}/etc/rcn-ee.conf
 
 cat > ${DIR}/chroot_script.sh <<-__EOF__
 	#!/bin/sh -e
@@ -303,7 +353,7 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	}
 
 	dpkg_package_missing () {
-		echo "Log: (chroot) package [\${pkg}] was not installed... (add to base_pkg_list if functionality is really needed)"
+		echo "Log: (chroot) package [\${pkg}] was not installed... (add to deb_include if functionality is really needed)"
 	}
 
 	is_this_qemu () {
@@ -337,12 +387,13 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	}
 
 	install_pkg_updates () {
-		if [ "x${chroot_enable_bborg_repo}" = "xenable" ] ; then
-			wget --no-verbose http://beagle.s3.amazonaws.com/debian/beagleboneblack-archive-keyring.asc -O - | apt-key add -
+		if [ "x${repo_rcnee}" = "xenable" ] ; then
+			apt-key add /tmp/repos.rcn-ee.net-archive-keyring.asc
+			rm -f /tmp/repos.rcn-ee.net-archive-keyring.asc || true
 		fi
-		if [ "x${chroot_multiarch_armel}" = "xenable" ] ; then
-			echo "Log: (chroot) multiarch enabled added: [armel]"
-			sudo dpkg --add-architecture armel
+		if [ "x${repo_external}" = "xenable" ] ; then
+			apt-key add /tmp/${repo_external_key}
+			rm -f /tmp/${repo_external_key} || true
 		fi
 
 		apt-get update
@@ -350,18 +401,29 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	}
 
 	install_pkgs () {
-		if [ ! "x${base_pkg_list}" = "x" ] ; then
+		if [ ! "x${deb_additional_pkgs}" = "x" ] ; then
 			#Install the user choosen list.
-			echo "Log: (chroot) Installing: ${base_pkg_list}"
-			apt-get -y --force-yes install ${base_pkg_list}
+			echo "Log: (chroot) Installing: ${deb_additional_pkgs}"
+			apt-get -y --force-yes install ${deb_additional_pkgs}
 		fi
-		if [ "x${chroot_multiarch_armel}" = "xenable" ] ; then
-			echo "Log: (chroot) Installing: libc6:armel"
-			sudo apt-get -y --force-yes install libc6:armel
+
+		if [ "x${chroot_enable_debian_backports}" = "xenable" ] ; then
+			if [ ! "x${chroot_debian_backports_pkg_list}" = "x" ] ; then
+				echo "Log: (chroot) Installing (from backports): ${chroot_debian_backports_pkg_list}"
+				sudo apt-get -y --force-yes install ${chroot_debian_backports_pkg_list}
+			fi
+		fi
+
+		if [ ! "x${repo_external_pkg_list}" = "x" ] ; then
+			echo "Log: (chroot) Installing (from external repo): ${repo_external_pkg_list}"
+			apt-get -y --force-yes install ${repo_external_pkg_list}
 		fi
 	}
 
-	tweak_systemd () {
+	system_tweaks () {
+		echo "[options]" > /etc/e2fsck.conf
+		echo "broken_system_clock = true" >> /etc/e2fsck.conf
+
 		if [ -f /etc/systemd/systemd-journald.conf ] ; then
 			sed -i -e 's:#SystemMaxUse=:SystemMaxUse=8M:g' /etc/systemd/systemd-journald.conf
 		fi
@@ -373,19 +435,23 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 
 		if [ "x\${pkg_is_not_installed}" = "x" ] ; then
 
-			case "\${distro}" in
-			Debian)
-				echo "Log: (chroot) Debian: setting up locales: [en_US.UTF-8]"
-				sed -i -e 's:# en_US.UTF-8 UTF-8:en_US.UTF-8 UTF-8:g' /etc/locale.gen
-				locale-gen
-				;;
-			Ubuntu)
-				echo "Log: (chroot) Ubuntu: setting up locales: [en_US.UTF-8]"
-				locale-gen en_US.UTF-8
-				;;
-			esac
+			if [ ! "x${rfs_default_locale}" = "x" ] ; then
 
-			echo "LANG=en_US.UTF-8" > /etc/default/locale
+				case "\${distro}" in
+				Debian)
+					echo "Log: (chroot) Debian: setting up locales: [${rfs_default_locale}]"
+					sed -i -e 's:# ${rfs_default_locale} UTF-8:${rfs_default_locale} UTF-8:g' /etc/locale.gen
+					locale-gen
+					;;
+				Ubuntu)
+					echo "Log: (chroot) Ubuntu: setting up locales: [${rfs_default_locale}]"
+					locale-gen ${rfs_default_locale}
+					;;
+				esac
+
+				echo "LANG=${rfs_default_locale}" > /etc/default/locale
+
+			fi
 		else
 			dpkg_package_missing
 		fi
@@ -394,21 +460,17 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	run_deborphan () {
 		apt-get -y --force-yes install deborphan
 
+		# Prevent deborphan from removing explicitly required packages
+		deborphan -A ${deb_additional_pkgs} ${repo_external_pkg_list} ${deb_include}
+
 		deborphan | xargs apt-get -y remove --purge
+
+		# Purge keep file
+		deborphan -Z
 
 		#FIXME, only tested on wheezy...
 		apt-get -y remove deborphan dialog gettext-base libasprintf0c2 --purge
 		apt-get clean
-	}
-
-	dl_pkg_src () {
-		sed -i -e 's:#deb-src:deb-src:g' /etc/apt/sources.list
-		apt-get update
-		mkdir -p /tmp/pkg_src/
-		cd /tmp/pkg_src/
-		dpkg -l | tail -n+6 | awk '{print \$2}' | sed "s/:armel//g" | sed "s/:armhf//g" > /tmp/pkg_src/pkg_list
-		apt-get source --download-only \`cat /tmp/pkg_src/pkg_list\`
-		cd -
 	}
 
 	dl_kernel () {
@@ -443,27 +505,26 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 			wget --directory-prefix=/boot/ \${kernel_url}\${dtb_file}
 		fi
 
-		unset firmware_file
-		firmware_file=\$(cat /tmp/index.html | grep firmware.tar.gz | head -n 1)
-		firmware_file=\$(echo \${firmware_file} | awk -F "\"" '{print \$2}')
-
-		if [ "\${firmware_file}" ] ; then
-			wget --directory-prefix=/tmp/ \${kernel_url}\${firmware_file}
-
-			mkdir -p /tmp/cape-firmware/
-			tar xf /tmp/\${firmware_file} -C /tmp/cape-firmware/
-			cp -v /tmp/cape-firmware/*.dtbo /lib/firmware/ 2>/dev/null
-			rm -rf /tmp/cape-firmware/ || true
-			rm -f /tmp/\${firmware_file} || true
-		fi
-
 		dpkg -x /tmp/\${deb_file} /
+
+		if [ "x\${third_party_modules}" = "xenable" ] ; then
+			unset thirdparty_file
+			thirdparty_file=\$(cat /tmp/index.html | grep thirdparty)
+			thirdparty_file=\$(echo \${thirdparty_file} | awk -F "\"" '{print \$2}')
+			if [ "\${thirdparty_file}" ] ; then
+				wget --directory-prefix=/tmp/ \${kernel_url}\${thirdparty_file}
+
+				if [ -f /tmp/thirdparty ] ; then
+					/bin/sh /tmp/thirdparty
+				fi
+			fi
+		fi
 
 		pkg="initramfs-tools"
 		dpkg_check
 
 		if [ "x\${pkg_is_not_installed}" = "x" ] ; then
-			depmod \${kernel_version}
+			depmod \${kernel_version} -a
 			update-initramfs -c -k \${kernel_version}
 		else
 			dpkg_package_missing
@@ -486,12 +547,19 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	}
 
 	add_user () {
-		groupadd admin || true
+		groupadd -r admin || true
+		groupadd -r spi || true
 
-		groupadd spi || true
+		cat /etc/group | grep ^i2c || groupadd -r i2c || true
+		cat /etc/group | grep ^kmem || groupadd -r kmem || true
+		cat /etc/group | grep ^netdev || groupadd -r netdev || true
+		cat /etc/group | grep ^systemd-journal || groupadd -r systemd-journal || true
+		cat /etc/group | grep ^weston-launch || groupadd -r weston-launch || true
+		cat /etc/group | grep ^xenomai || groupadd -r xenomai || true
+
 		echo "KERNEL==\"spidev*\", GROUP=\"spi\", MODE=\"0660\"" > /etc/udev/rules.d/50-spi.rules
 
-		default_groups="admin,adm,dialout,i2c,spi,cdrom,floppy,audio,dip,video,netdev,plugdev,users"
+		default_groups="admin,adm,dialout,i2c,kmem,spi,cdrom,floppy,audio,dip,video,netdev,plugdev,users,systemd-journal,weston-launch,xenomai"
 
 		pkg="sudo"
 		dpkg_check
@@ -501,21 +569,33 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 			echo "%admin  ALL=(ALL) ALL" >>/etc/sudoers
 		else
 			dpkg_package_missing
+			if [ "x${rfs_disable_root}" = "xenable" ] ; then
+				echo "Log: (Chroot) WARNING: sudo not installed and no root user"
+			fi
 		fi
 
-		pass_crypt=\$(perl -e 'print crypt(\$ARGV[0], "rcn-ee-salt")' ${password})
+		pass_crypt=\$(perl -e 'print crypt(\$ARGV[0], "rcn-ee-salt")' ${rfs_password})
 
-		useradd -G "\${default_groups}" -s /bin/bash -m -p \${pass_crypt} -c "${full_name}" ${user_name}
-		sudo chage -d 0 ${user_name}
+		useradd -G "\${default_groups}" -s /bin/bash -m -p \${pass_crypt} -c "${rfs_fullname}" ${rfs_username}
+		grep ${rfs_username} /etc/passwd
+
+		mkdir -p /home/${rfs_username}/bin
+		chown ${rfs_username}:${rfs_username} /home/${rfs_username}/bin
+
+		echo "default username:password is [${rfs_username}:${rfs_password}]" >> /etc/issue
+		echo "" >> /etc/issue
+
 		case "\${distro}" in
 		Debian)
-			echo "default username:password is [${user_name}:${password}]" >> /etc/issue
-			echo "" >> /etc/issue
 
-			passwd <<-EOF
-			root
-			root
-			EOF
+			if [ "x${rfs_disable_root}" = "xenable" ] ; then
+				passwd -l root || true
+			else
+				passwd <<-EOF
+				root
+				root
+				EOF
+			fi
 
 			sed -i -e 's:#EXTRA_GROUPS:EXTRA_GROUPS:g' /etc/adduser.conf
 			sed -i -e 's:dialout:dialout i2c spi:g' /etc/adduser.conf
@@ -529,11 +609,11 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	}
 
 	debian_startup_script () {
-		if [ "x${chroot_generic_startup_scripts}" = "xenable" ] ; then
-			if [ -f /etc/init.d/boot_scripts.sh ] ; then
-				chown root:root /etc/init.d/boot_scripts.sh
-				chmod +x /etc/init.d/boot_scripts.sh
-				insserv boot_scripts.sh || true
+		if [ "x${rfs_startup_scripts}" = "xenable" ] ; then
+			if [ -f /etc/init.d/generic-boot-script.sh ] ; then
+				chown root:root /etc/init.d/generic-boot-script.sh
+				chmod +x /etc/init.d/generic-boot-script.sh
+				insserv generic-boot-script.sh || true
 			fi
 
 			if [ -f /etc/init.d/capemgr.sh ] ; then
@@ -546,9 +626,9 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	}
 
 	ubuntu_startup_script () {
-		if [ "x${chroot_generic_startup_scripts}" = "xenable" ] ; then
-			if [ -f /etc/init/boot_scripts.conf ] ; then
-				chown root:root /etc/init/boot_scripts.conf
+		if [ "x${rfs_startup_scripts}" = "xenable" ] ; then
+			if [ -f /etc/init/generic-boot-script.conf ] ; then
+				chown root:root /etc/init/generic-boot-script.conf
 			fi
 		fi
 
@@ -569,17 +649,17 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 			;;
 		esac
 
-		if [ "x${chroot_generic_startup_scripts}" = "xenable" ] ; then
+		if [ ! "x${rfs_opt_scripts}" = "x" ] ; then
 
 			if [ -f /usr/bin/git ] ; then
 				mkdir -p /opt/scripts/ || true
-				qemu_command="git clone https://github.com/jimmyken793/boot-scripts /opt/scripts/ --depth 1 || true"
+				qemu_command="git clone ${rfs_opt_scripts} /opt/scripts/ --depth 1 || true"
 				qemu_warning
-				git clone https://github.com/jimmyken793/boot-scripts /opt/scripts/ --depth 1 || true
+				git clone ${rfs_opt_scripts} /opt/scripts/ --depth 1 || true
 				sync
 				if [ -f /opt/scripts/.git/config ] ; then
-					echo "/opt/scripts/ : https://github.com/jimmyken793/boot-scripts" >> /opt/source/list.txt
-					chown -R ${user_name}:${user_name} /opt/scripts/
+					echo "/opt/scripts/ : ${rfs_opt_scripts}" >> /opt/source/list.txt
+					chown -R ${rfs_username}:${rfs_username} /opt/scripts/
 				fi
 			fi
 
@@ -591,11 +671,6 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 
 		if [ -f /etc/apt/apt.conf ] ; then
 			rm -rf /etc/apt/apt.conf || true
-		fi
-		if [ "x${chroot_very_small_image}" = "xenable" ] ; then
-			#if your flash is already small, the apt cache might overfill it so drop src...
-			sed -i -e 's:deb-src:#deb-src:g' /etc/apt/sources.list
-			apt-get update
 		fi
 		apt-get clean
 
@@ -623,7 +698,7 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 
 	install_pkg_updates
 	install_pkgs
-	tweak_systemd
+	system_tweaks
 	set_locale
 	if [ "x${chroot_very_small_image}" = "xenable" ] ; then
 		run_deborphan
@@ -635,16 +710,12 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 
 	startup_script
 
-	if [ "x${chroot_ENABLE_DEB_SRC}" = "xenable" ] ; then
-		dl_pkg_src
-	fi
-
 	pkg="wget"
 	dpkg_check
 
 	if [ "x\${pkg_is_not_installed}" = "x" ] ; then
-		if [ "${chroot_KERNEL_HTTP_DIR}" ] ; then
-			for kernel_url in ${chroot_KERNEL_HTTP_DIR} ; do dl_kernel ; done
+		if [ "${rfs_kernel}" ] ; then
+			for kernel_url in ${rfs_kernel} ; do dl_kernel ; done
 		fi
 	else
 		dpkg_package_missing
@@ -657,7 +728,6 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 __EOF__
 
 sudo mv ${DIR}/chroot_script.sh ${tempdir}/chroot_script.sh
-
 
 if [ "x${include_firmware}" = "xenable" ] ; then
 	if [ ! -d ${tempdir}/lib/firmware/ ] ; then
@@ -690,36 +760,39 @@ if [ "x${include_firmware}" = "xenable" ] ; then
 		sudo cp -v ${DIR}/git/linux-firmware/LICENCE.ti-connectivity ${tempdir}/lib/firmware/
 		sudo cp -v ${DIR}/git/linux-firmware/ti-connectivity/* ${tempdir}/lib/firmware/ti-connectivity
 	fi
-
-	if [ -f ${DIR}/git/am33x-cm3/bin/am335x-pm-firmware.bin ] ; then
-		sudo cp -v ${DIR}/git/am33x-cm3/bin/am335x-pm-firmware.bin ${tempdir}/lib/firmware/am335x-pm-firmware.bin
-	fi
 fi
 
 chroot_mount
 sudo chroot ${tempdir} /bin/sh chroot_script.sh
 echo "Log: Complete: [sudo chroot ${tempdir} /bin/sh chroot_script.sh]"
 
-if [ "x${chroot_generic_startup_scripts}" = "xenable" ] ; then
+if [ ! "x${rfs_opt_scripts}" = "x" ] ; then
 	if [ ! -f ${tempdir}/opt/scripts/.git/config ] ; then
-		echo "Log: ERROR: git clone of https://github.com/RobertCNelson/boot-scripts failed.."
+		echo "Log: ERROR: git clone of ${rfs_opt_scripts} failed.."
 		exit 1
 	fi
 fi
 
-
-git clone https://github.com/libusb/libusb.git ${tempdir}/tmp/libusb
-git clone git@github.com:jimmyken793/hidapi.git ${tempdir}/tmp/hidapi
+if [ -n "${chroot_before_hook}" -a -r "${DIR}/${chroot_before_hook}" ] ; then
+	report_size
+	echo "Calling chroot_before_hook script: ${chroot_before_hook}"
+	. "${DIR}/${chroot_before_hook}"
+	chroot_before_hook=""
+fi
 
 if [ -n "${chroot_script}" -a -r "${DIR}/target/chroot/${chroot_script}" ] ; then
 	report_size
 	echo "Calling chroot_script script: ${chroot_script}"
-	sudo cp -v ${DIR}/.project ${tempdir}/.project
+	sudo cp -v ${DIR}/.project ${tempdir}/etc/oib.project
 	sudo cp -v ${DIR}/target/chroot/${chroot_script} ${tempdir}/final.sh
 	sudo chroot ${tempdir} /bin/sh final.sh
 	sudo rm -f ${tempdir}/final.sh || true
-	sudo rm -f ${tempdir}/.project || true
+	sudo rm -f ${tempdir}/etc/oib.project || true
 	chroot_script=""
+	if [ -f ${tempdir}/npm-debug.log ] ; then
+		echo "Log: ERROR: npm error in script, review log [cat ${tempdir}/npm-debug.log]..."
+		exit 1
+	fi
 fi
 
 ##Building final tar file...
@@ -728,63 +801,109 @@ if [ -d ${DIR}/deploy/${export_filename}/ ] ; then
 	rm -rf ${DIR}/deploy/${export_filename}/ || true
 fi
 mkdir -p ${DIR}/deploy/${export_filename}/ || true
+cp -v ${DIR}/.project ${DIR}/deploy/${export_filename}/image-builder.project
 
-if [ -n "${chroot_hook}" -a -r "${DIR}/${chroot_hook}" ] ; then
+if [ -n "${chroot_after_hook}" -a -r "${DIR}/${chroot_after_hook}" ] ; then
 	report_size
-	echo "Calling chroot_hook script: ${chroot_hook}"
-	. "${DIR}/${chroot_hook}"
-	chroot_hook=""
+	echo "Calling chroot_after_hook script: ${chroot_after_hook}"
+	. "${DIR}/${chroot_after_hook}"
+	chroot_after_hook=""
+fi
+
+#add /boot/uEnv.txt update script
+if [ -d ${tempdir}/etc/kernel/postinst.d/ ] ; then
+	sudo cp -v ${OIB_DIR}/target/other/zz-uenv_txt ${tempdir}/etc/kernel/postinst.d/
+	sudo chmod +x ${tempdir}/etc/kernel/postinst.d/zz-uenv_txt
 fi
 
 if [ -f ${tempdir}/usr/bin/qemu-arm-static ] ; then
 	sudo rm -f ${tempdir}/usr/bin/qemu-arm-static || true
 fi
 
-if ls ${tempdir}/boot/vmlinuz-* >/dev/null 2>&1 ; then
-	sudo mv -v ${tempdir}/boot/vmlinuz-* ${DIR}/deploy/${export_filename}/
+if [ "${rfs_kernel}" ] ; then
+	if ls ${tempdir}/boot/vmlinuz-* >/dev/null 2>&1 ; then
+		sudo cp -v ${tempdir}/boot/vmlinuz-* ${DIR}/deploy/${export_filename}/
+	else
+		if [ "${rfs_kernel}" ] ; then
+			echo "Log: ERROR: kernel install failure..."
+			exit 1
+		fi
+	fi
+
+	if ls ${tempdir}/boot/initrd.img-* >/dev/null 2>&1 ; then
+		sudo cp -v ${tempdir}/boot/initrd.img-* ${DIR}/deploy/${export_filename}/
+	fi
+
+	if ls ${tempdir}/boot/*dtbs.tar.gz >/dev/null 2>&1 ; then
+		sudo cp -v ${tempdir}/boot/*dtbs.tar.gz ${DIR}/deploy/${export_filename}/
+	fi
 fi
 
-if ls ${tempdir}/boot/initrd.img-* >/dev/null 2>&1 ; then
-	sudo mv -v ${tempdir}/boot/initrd.img-* ${DIR}/deploy/${export_filename}/
-fi
-
-if ls ${tempdir}/boot/*dtbs.tar.gz >/dev/null 2>&1 ; then
-	sudo mv -v ${tempdir}/boot/*dtbs.tar.gz ${DIR}/deploy/${export_filename}/
-fi
-
-echo "${user_name}:${password}" > /tmp/user_password.list
+echo "${rfs_username}:${rfs_password}" > /tmp/user_password.list
 sudo mv /tmp/user_password.list ${DIR}/deploy/${export_filename}/user_password.list
 
 #Fixes:
-#Remove pre-generated ssh keys, these will be regenerated on first bootup...
-sudo rm -rf ${tempdir}/etc/ssh/ssh_host_* || true
+if [ -d ${tempdir}/etc/ssh/ -a "x${keep_ssh_keys}" = "x" ] ; then
+	#Remove pre-generated ssh keys, these will be regenerated on first bootup...
+	sudo rm -rf ${tempdir}/etc/ssh/ssh_host_* || true
+	sudo touch ${tempdir}/etc/ssh/ssh.regenerate || true
+fi
+
+#extra home, from chroot machine when running npm install xyz:
+unset extra_home
+extra_home=$(ls -lh ${tempdir}/home/ | grep -v ${rfs_username} | awk '{print $9}' | tail -1 || true)
+if [ ! "x${extra_home}" = "x" ] ; then
+	if [ -d ${tempdir}/home/${extra_home}/ ] ; then
+		sudo rm -rf ${tempdir}/home/${extra_home}/ || true
+	fi
+fi
+
+#ID.txt:
+if [ -f ${tempdir}/etc/dogtag ] ; then
+	sudo cp ${tempdir}/etc/dogtag ${DIR}/deploy/${export_filename}/ID.txt
+fi
 
 report_size
 chroot_umount
 
 if [ "x${chroot_COPY_SETUP_SDCARD}" = "xenable" ] ; then
-	sudo cp -v ${DIR}/tools/setup_sdcard.sh ${DIR}/deploy/${export_filename}/
+	echo "Log: copying setup_sdcard.sh related files"
+	sudo cp ${DIR}/tools/setup_sdcard.sh ${DIR}/deploy/${export_filename}/
 	sudo mkdir -p ${DIR}/deploy/${export_filename}/hwpack/
-	sudo cp -v ${DIR}/tools/hwpack/*.conf ${DIR}/deploy/${export_filename}/hwpack/
+	sudo cp ${DIR}/tools/hwpack/*.conf ${DIR}/deploy/${export_filename}/hwpack/
 
-	if [ -n "${chroot_uenv_txt}" -a -r "${DIR}/target/boot/${chroot_uenv_txt}" ] ; then
-		sudo cp "${DIR}/target/boot/${chroot_uenv_txt}" ${DIR}/deploy/${export_filename}/uEnv.txt
+	if [ -n "${chroot_uenv_txt}" -a -r "${OIB_DIR}/target/boot/${chroot_uenv_txt}" ] ; then
+		sudo cp "${OIB_DIR}/target/boot/${chroot_uenv_txt}" ${DIR}/deploy/${export_filename}/uEnv.txt
 	fi
+
+	if [ -n "${chroot_flasher_uenv_txt}" -a -r "${OIB_DIR}/target/boot/${chroot_flasher_uenv_txt}" ] ; then
+		sudo cp "${OIB_DIR}/target/boot/${chroot_flasher_uenv_txt}" ${DIR}/deploy/${export_filename}/eMMC-flasher.txt
+	fi
+
+	if [ -n "${chroot_post_uenv_txt}" -a -r "${OIB_DIR}/target/boot/${chroot_post_uenv_txt}" ] ; then
+		sudo cp "${OIB_DIR}/target/boot/${chroot_post_uenv_txt}" ${DIR}/deploy/${export_filename}/post-uEnv.txt
+	fi
+
 fi
 
-if [ "x${chroot_ENABLE_DEB_SRC}" = "xenable" ] ; then
-	cd ${tempdir}/tmp/pkg_src/
-	sudo LANG=C tar --numeric-owner -cf ${DIR}/deploy/${dpkg_arch}-rootfs-${distro}-${release}-${time}-src.tar .
+if [ "x${chroot_directory}" = "xenable" ]; then
+	echo "Log: moving rootfs to directory: [${deb_arch}-rootfs-${deb_distribution}-${deb_codename}]"
+	sudo mv -v ${tempdir} ${DIR}/deploy/${export_filename}/${deb_arch}-rootfs-${deb_distribution}-${deb_codename}
+	du -h --max-depth=0 ${DIR}/deploy/${export_filename}/${deb_arch}-rootfs-${deb_distribution}-${deb_codename}
+else
 	cd ${tempdir}
-	ls -lh ${DIR}/deploy/${dpkg_arch}-rootfs-${distro}-${release}-${time}-src.tar
-	sudo rm -rf ${tempdir}/tmp/pkg_src/ || true
-	report_size
+	echo "Log: packaging rootfs: [${deb_arch}-rootfs-${deb_distribution}-${deb_codename}.tar]"
+	sudo LANG=C tar --numeric-owner -cf ${DIR}/deploy/${export_filename}/${deb_arch}-rootfs-${deb_distribution}-${deb_codename}.tar .
+	cd ${DIR}/
+	ls -lh ${DIR}/deploy/${export_filename}/${deb_arch}-rootfs-${deb_distribution}-${deb_codename}.tar
 fi
-
-cd ${tempdir}
-sudo LANG=C tar --numeric-owner -cf ${DIR}/deploy/${export_filename}/${dpkg_arch}-rootfs-${distro}-${release}.tar .
-cd ${DIR}/
-ls -lh ${DIR}/deploy/${export_filename}/${dpkg_arch}-rootfs-${distro}-${release}.tar
 
 sudo chown -R ${USER}:${USER} ${DIR}/deploy/${export_filename}/
+
+if [ "x${chroot_tarball}" = "xenable" ] ; then
+	echo "Compressing ${export_filename}"
+	cd ${DIR}/deploy/
+	tar cvf ${export_filename}.tar ./${export_filename}
+	cd ${DIR}/
+fi
 #

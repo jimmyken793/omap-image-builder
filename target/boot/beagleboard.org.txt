@@ -3,19 +3,30 @@
 #kms_force_mode=video=HDMI-A-1:1024x768@60e
 
 ##Enable systemd
-systemd=quiet init=/lib/systemd/systemd
+initopts=quiet init=/lib/systemd/systemd
+
+##init-eMMC-flasher.sh
+#initopts=init=/opt/scripts/tools/init-eMMC-flasher.sh
 
 ##BeagleBone Cape Overrides
 
 ##BeagleBone Black:
 ##Disable HDMI/eMMC
-#optargs=capemgr.disable_partno=BB-BONELT-HDMI,BB-BONELT-HDMIN,BB-BONE-EMMC-2G
+#cape_disable=capemgr.disable_partno=BB-BONELT-HDMI,BB-BONELT-HDMIN,BB-BONE-EMMC-2G
 
 ##Disable HDMI
-#optargs=capemgr.disable_partno=BB-BONELT-HDMI,BB-BONELT-HDMIN
+#cape_disable=capemgr.disable_partno=BB-BONELT-HDMI,BB-BONELT-HDMIN
 
-##WIP: v3.13+ capes..
-#cape=lcd4-01
+##Audio Cape (needs HDMI Audio disabled)
+#cape_disable=capemgr.disable_partno=BB-BONELT-HDMI
+#cape_enable=capemgr.enable_partno=BB-BONE-AUDI-02
+
+##Example
+#cape_disable=capemgr.disable_partno=
+#cape_enable=capemgr.enable_partno=
+
+##WIP: v3.14+ capes..
+#cape=ttyO1
 #cape=
 
 ##note: the eMMC flasher script relies on the next line
@@ -28,9 +39,9 @@ console=ttyO0,115200n8
 kernel_file=zImage
 initrd_file=initrd.img
 
-loadaddr=0x80300000
-initrd_addr=0x81600000
-fdtaddr=0x815f0000
+loadaddr=0x82000000
+initrd_addr=0x88080000
+fdtaddr=0x88000000
 
 initrd_high=0xffffffff
 fdt_high=0xffffffff
@@ -40,7 +51,7 @@ loadinitrd=load mmc ${mmcdev}:${mmcpart} ${initrd_addr} ${initrd_file}; setenv i
 loadfdt=load mmc ${mmcdev}:${mmcpart} ${fdtaddr} /dtbs/${fdtfile}
 
 loadfiles=run loadkernel; run loadinitrd; run loadfdt
-mmcargs=setenv bootargs console=${console} ${optargs} ${kms_force_mode} root=${mmcroot} rootfstype=${mmcrootfstype} ${systemd}
+mmcargs=setenv bootargs console=tty0 console=${console} ${optargs} ${cape_disable} ${cape_enable} ${kms_force_mode} root=${mmcroot} rootfstype=${mmcrootfstype} ${initopts}
 
 uenvcmd=run loadfiles; run mmcargs; bootz ${loadaddr} ${initrd_addr}:${initrd_size} ${fdtaddr}
 #

@@ -6,13 +6,13 @@
 base_pkgs=""
 
 #Base
-base_pkgs="${base_pkgs} ca-certificates nano pastebinit"
+base_pkgs="${base_pkgs} ca-certificates nano pastebinit file lsb-release"
 
 #Tools
-base_pkgs="${base_pkgs} bsdmainutils i2c-tools fbset hexedit memtester read-edid u-boot-tools"
+base_pkgs="${base_pkgs} bsdmainutils i2c-tools fbset hexedit hdparm memtester read-edid u-boot-tools"
 
 #OS
-base_pkgs="${base_pkgs} dosfstools btrfs-tools cpufrequtils ntpdate"
+base_pkgs="${base_pkgs} acpid dosfstools btrfs-tools cpufrequtils ntpdate"
 
 #USB Dongles
 base_pkgs="${base_pkgs} ppp usb-modeswitch usbutils"

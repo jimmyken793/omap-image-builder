@@ -1,6 +1,6 @@
 #!/bin/sh -e
 #
-# Copyright (c) 2012-2013 Robert Nelson <robertcnelson@gmail.com>
+# Copyright (c) 2012-2014 Robert Nelson <robertcnelson@gmail.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,32 +25,60 @@ DIR=$PWD
 . ${DIR}/.project
 
 check_defines () {
+	#http://linux.die.net/man/8/debootstrap
+
+	unset options
+	if [ ! "${deb_arch}" ] ; then
+		echo "scripts/deboostrap_first_stage.sh: Error: deb_arch undefined"
+		exit 1
+	else
+		options="--arch=${deb_arch}"
+	fi
+
+	if [ "${deb_include}" ] ; then
+		include=$(echo ${deb_include} | sed 's/ /,/g')
+		options="${options} --include=${include}"
+	fi
+
+	if [ "${deb_exclude}" ] ; then
+		exclude=$(echo ${deb_exclude} | sed 's/ /,/g')
+		options="${options} --exclude=${exclude}"
+	fi
+
+	if [ "${deb_components}" ] ; then
+		components=$(echo ${deb_components} | sed 's/ /,/g')
+		options="${options} --components=${components}"
+	fi
+
+	options="${options} --foreign"
+
+	unset suite
+	if [ ! "${deb_codename}" ] ; then
+		echo "scripts/deboostrap_first_stage.sh: Error: deb_codename undefined"
+		exit 1
+	else
+		suite="${deb_codename}"
+	fi
+
+	unset target
 	if [ ! "${tempdir}" ] ; then
 		echo "scripts/deboostrap_first_stage.sh: Error: tempdir undefined"
 		exit 1
+	else
+		target="${tempdir}"
 	fi
 
-	if [ ! "${distro}" ] ; then
-		echo "scripts/deboostrap_first_stage.sh: Error: distro undefined"
+	if [ ! "${deb_distribution}" ] ; then
+		echo "scripts/deboostrap_first_stage.sh: Error: deb_distribution undefined"
 		exit 1
 	fi
 
-	if [ ! "${release}" ] ; then
-		echo "scripts/deboostrap_first_stage.sh: Error: release undefined"
-		exit 1
-	fi
-
-	if [ ! "${dpkg_arch}" ] ; then
-		echo "scripts/deboostrap_first_stage.sh: Error: dpkg_arch undefined"
-		exit 1
-	fi
-
+	unset mirror
 	if [ ! "${apt_proxy}" ] ; then
 		apt_proxy=""
 	fi
-
 	if [ ! "${deb_mirror}" ] ; then
-		case "${distro}" in
+		case "${deb_distribution}" in
 		debian)
 			deb_mirror="ftp.us.debian.org/debian/"
 			;;
@@ -59,18 +87,7 @@ check_defines () {
 			;;
 		esac
 	fi
-
-	if [ "${include_pkgs_list}" ] ; then
-		include="--include ${include_pkgs_list}"
-	else
-		include=""
-	fi
-
-	if [ "${exclude_pkgs_list}" ] ; then
-		exclude="--exclude ${exclude_pkgs_list}"
-	else
-		exclude=""
-	fi
+	mirror="http://${apt_proxy}${deb_mirror}"
 }
 
 report_size () {
@@ -79,14 +96,14 @@ report_size () {
 
 check_defines
 
-echo "Log: Creating: [${distro}] [${release}] image for: [${dpkg_arch}]"
+echo "Log: Creating: [${deb_distribution}] [${deb_codename}] image for: [${deb_arch}]"
 
 if [ "${apt_proxy}" ] ; then
 	echo "Log: using apt proxy: [${apt_proxy}]"
 fi
 
 echo "Log: Running: debootstrap in [${tempdir}]"
-echo "Log: [sudo debootstrap ${include} ${exclude} --foreign --arch ${dpkg_arch} ${release} ${tempdir} http://${apt_proxy}${deb_mirror}]"
-sudo debootstrap ${include} ${exclude} --foreign --arch ${dpkg_arch} ${release} ${tempdir} http://${apt_proxy}${deb_mirror}
+echo "Log: [sudo debootstrap ${options} ${suite} ${target} ${mirror}]"
+sudo debootstrap ${options} ${suite} ${target} ${mirror}
 report_size
 #

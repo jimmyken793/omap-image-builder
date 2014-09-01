@@ -22,15 +22,12 @@
 # THE SOFTWARE.
 #
 # Latest can be found at:
-# http://github.com/RobertCNelson/omap-image-builder/blob/master/tools/setup_sdcard.sh
+# https://github.com/RobertCNelson/omap-image-builder/blob/master/tools/setup_sdcard.sh
 
 #REQUIREMENTS:
 #uEnv.txt bootscript support
 
-MIRROR="http://rcn-ee.net/deb"
-BACKUP_MIRROR="http://rcn-ee.homeip.net:81/dl/mirrors/deb"
-
-BOOT_LABEL="boot"
+BOOT_LABEL="BOOT"
 
 unset USE_BETA_BOOTLOADER
 unset USE_LOCAL_BOOT
@@ -57,7 +54,7 @@ is_element_of () {
 #
 #########################################################################
 
-VALID_ROOTFS_TYPES="ext2 ext3 ext4 btrfs"
+VALID_ROOTFS_TYPES="ext2 ext3 ext4"
 
 is_valid_rootfs_type () {
 	if is_element_of $1 "${VALID_ROOTFS_TYPES}" ] ; then
@@ -86,28 +83,20 @@ find_issue () {
 		exit
 	fi
 
-	unset HAS_INITRD
-	unset check
-	check=$(ls "${DIR}/" | grep initrd.img | head -n 1)
-	if [ "x${check}" != "x" ] ; then
-		echo "Debug: image has initrd.img:"
-		HAS_INITRD=1
-	fi
-
-	unset HAS_DTBS
-	unset check
-	check=$(ls "${DIR}/" | grep dtbs | head -n 1)
-	if [ "x${check}" != "x" ] ; then
-		echo "Debug: image has device tree:"
-		HAS_DTBS=1
-	fi
-
 	unset has_uenvtxt
 	unset check
-	check=$(ls "${DIR}/" | grep uEnv.txt | head -n 1)
+	check=$(ls "${DIR}/" | grep uEnv.txt | grep -v post-uEnv.txt | head -n 1)
 	if [ "x${check}" != "x" ] ; then
 		echo "Debug: image has pre-generated uEnv.txt file"
 		has_uenvtxt=1
+	fi
+
+	unset has_post_uenvtxt
+	unset check
+	check=$(ls "${DIR}/" | grep post-uEnv.txt | head -n 1)
+	if [ "x${check}" != "x" ] ; then
+		echo "Debug: image has post-uEnv.txt file"
+		has_post_uenvtxt="enable"
 	fi
 }
 
@@ -129,18 +118,17 @@ detect_software () {
 	check_for_command wget wget
 	check_for_command git git
 	check_for_command partprobe parted
-	check_for_command mkimage u-boot-tools
 
-	if [ "${build_img_file}" ] ; then
+	if [ "x${build_img_file}" = "xenable" ] ; then
 		check_for_command kpartx kpartx
 	fi
 
 	if [ "${NEEDS_COMMAND}" ] ; then
 		echo ""
 		echo "Your system is missing some dependencies"
-		echo "Debian/Ubuntu: sudo apt-get install dosfstools git-core kpartx u-boot-tools wget parted"
-		echo "Fedora: yum install dosfstools dosfstools git-core uboot-tools wget"
-		echo "Gentoo: emerge dosfstools git u-boot-tools wget"
+		echo "Debian/Ubuntu: sudo apt-get install dosfstools git-core kpartx wget parted"
+		echo "Fedora: yum install dosfstools dosfstools git-core wget"
+		echo "Gentoo: emerge dosfstools git wget"
 		echo ""
 		exit
 	fi
@@ -154,6 +142,24 @@ detect_software () {
 		echo ""
 		exit
 	fi
+
+	unset wget_version
+	wget_version=$(LC_ALL=C wget --version | grep "GNU Wget" | awk '{print $3}' | awk -F '.' '{print $2}' || true)
+	case "${wget_version}" in
+	12|13)
+		#wget before 1.14 in debian does not support sni
+		echo "wget: [`LC_ALL=C wget --version | grep \"GNU Wget\" | awk '{print $3}' || true`]"
+		echo "wget: [this version of wget does not support sni, using --no-check-certificate]"
+		echo "wget: [http://en.wikipedia.org/wiki/Server_Name_Indication]"
+		dl="wget --no-check-certificate"
+		;;
+	*)
+		dl="wget"
+		;;
+	esac
+
+	dl_continue="${dl} -c"
+	dl_quiet="${dl} --no-verbose"
 }
 
 local_bootloader () {
@@ -164,8 +170,8 @@ local_bootloader () {
 
 	if [ "${spl_name}" ] ; then
 		cp ${LOCAL_SPL} ${TEMPDIR}/dl/
-		MLO=${LOCAL_SPL##*/}
-		echo "SPL Bootloader: ${MLO}"
+		SPL=${LOCAL_SPL##*/}
+		echo "SPL Bootloader: ${SPL}"
 	fi
 
 	if [ "${boot_name}" ] ; then
@@ -184,7 +190,7 @@ dl_bootloader () {
 	mkdir -p ${TEMPDIR}/dl/${DIST}
 	mkdir -p "${DIR}/dl/${DIST}"
 
-	wget --no-verbose --directory-prefix="${TEMPDIR}/dl/" ${conf_bl_http}/${conf_bl_listfile}
+	${dl_quiet} --directory-prefix="${TEMPDIR}/dl/" ${conf_bl_http}/${conf_bl_listfile}
 
 	if [ ! -f ${TEMPDIR}/dl/${conf_bl_listfile} ] ; then
 		echo "error: can't connect to rcn-ee.net, retry in a few minutes..."
@@ -205,234 +211,22 @@ dl_bootloader () {
 	fi
 
 	if [ "${spl_name}" ] ; then
-		MLO=$(cat ${TEMPDIR}/dl/${conf_bl_listfile} | grep "${ABI}:${conf_board}:SPL" | awk '{print $2}')
-		wget --no-verbose --directory-prefix="${TEMPDIR}/dl/" ${MLO}
-		MLO=${MLO##*/}
-		echo "SPL Bootloader: ${MLO}"
+		SPL=$(cat ${TEMPDIR}/dl/${conf_bl_listfile} | grep "${ABI}:${conf_board}:SPL" | awk '{print $2}')
+		${dl_quiet} --directory-prefix="${TEMPDIR}/dl/" ${SPL}
+		SPL=${SPL##*/}
+		echo "SPL Bootloader: ${SPL}"
 	else
-		unset MLO
+		unset SPL
 	fi
 
 	if [ "${boot_name}" ] ; then
 		UBOOT=$(cat ${TEMPDIR}/dl/${conf_bl_listfile} | grep "${ABI}:${conf_board}:BOOT" | awk '{print $2}')
-		wget --directory-prefix="${TEMPDIR}/dl/" ${UBOOT}
+		${dl} --directory-prefix="${TEMPDIR}/dl/" ${UBOOT}
 		UBOOT=${UBOOT##*/}
 		echo "UBOOT Bootloader: ${UBOOT}"
 	else
 		unset UBOOT
 	fi
-}
-
-boot_uenv_txt_template () {
-	cat > ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-		kernel_file=${conf_normal_kernel_file}
-		initrd_file=${conf_normal_initrd_file}
-	__EOF__
-
-	cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-		initrd_high=0xffffffff
-		fdt_high=0xffffffff
-
-	__EOF__
-
-	if [ ! "${uboot_fdt_auto_detection}" ] ; then
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			fdtfile=${conf_fdtfile}
-
-		__EOF__
-	fi
-
-	if [ ! "${USE_KMS}" ] ; then
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			#Video: Uncomment to override U-Boots value:
-			UENV_FB
-			UENV_TIMING
-
-		__EOF__
-	fi
-
-	if [ "${kms_conn}" ] ; then
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			#Video: Uncomment to override:
-			#kms_force_mode=video=${kms_conn}:1024x768@60
-
-		__EOF__
-	fi
-
-	if [ "x${enable_systemd}" = "xenabled" ] ; then
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			##Enable systemd
-			systemd=quiet init=/lib/systemd/systemd
-
-		__EOF__
-	else
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			##Enable systemd
-			#systemd=quiet init=/lib/systemd/systemd
-
-		__EOF__
-	fi
-
-	case "${SYSTEM}" in
-	bone|bone_dtb)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			##BeagleBone Cape Overrides
-			##Note: On the BeagleBone Black, there is also an uEnv.txt in the eMMC, so if these changes do not seem to be makeing a difference...
-
-			##BeagleBone Black:
-			##Disable HDMI/eMMC
-			#optargs=capemgr.disable_partno=BB-BONELT-HDMI,BB-BONELT-HDMIN,BB-BONE-EMMC-2G
-
-		__EOF__
-		;;
-	beagle)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			#SPI: enable for userspace spi access on expansion header
-			#buddy=spidev
-
-			#LSR COM6L Adapter Board
-			#http://eewiki.net/display/linuxonarm/LSR+COM6L+Adapter+Board
-			#First production run has unprogramed eeprom:
-			#buddy=lsr-com6l-adpt
-
-			#LSR COM6L Adapter Board + TiWi5
-			#wl12xx_clk=wl12xx_26mhz
-
-		__EOF__
-		;;
-	beagle_xm)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			#Camera:
-			#http://shop.leopardimaging.com/product.sc?productId=17
-			#camera=li5m03
-
-			#SPI: enable for userspace spi access on expansion header
-			#buddy=spidev
-
-			#LSR COM6L Adapter Board
-			#http://eewiki.net/display/linuxonarm/LSR+COM6L+Adapter+Board
-			#First production run has unprogramed eeprom:
-			#buddy=lsr-com6l-adpt
-
-			#LSR COM6L Adapter Board + TiWi5
-			#wl12xx_clk=wl12xx_26mhz
-
-		__EOF__
-		;;
-	panda)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			#SPI: enable for userspace spi access on expansion header
-			#buddy=spidev
-
-		__EOF__
-		;;
-	esac
-
-	cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-		console=SERIAL_CONSOLE
-
-		mmcroot=/dev/mmcblk0p2 ro
-		mmcrootfstype=FINAL_FSTYPE rootwait fixrtc
-
-		loadkernel=${conf_fileload} mmc \${mmcdev}:\${mmcpart} ${conf_loadaddr} \${kernel_file}
-		loadinitrd=${conf_fileload} mmc \${mmcdev}:\${mmcpart} ${conf_initrdaddr} \${initrd_file}; setenv initrd_size \${filesize}
-		loadfdt=${conf_fileload} mmc \${mmcdev}:\${mmcpart} ${conf_fdtaddr} /dtbs/\${fdtfile}
-
-		boot_ftd=run loadkernel; run loadinitrd; run loadfdt
-
-	__EOF__
-
-	if [ ! "${USE_KMS}" ] ; then
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			video_args=setenv video VIDEO_DISPLAY
-			device_args=run video_args; run expansion_args; run mmcargs
-			mmcargs=setenv bootargs console=\${console} \${optargs} \${video} root=\${mmcroot} rootfstype=\${mmcrootfstype} \${expansion} \${systemd}
-
-		__EOF__
-	else
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			device_args=run expansion_args; run mmcargs
-			mmcargs=setenv bootargs console=\${console} \${optargs} \${kms_force_mode} root=\${mmcroot} rootfstype=\${mmcrootfstype} \${expansion} \${systemd}
-
-		__EOF__
-	fi
-
-	case "${SYSTEM}" in
-	beagle)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			optargs=VIDEO_CONSOLE
-			expansion_args=setenv expansion buddy=\${buddy} buddy2=\${buddy2} musb_hdrc.fifo_mode=5 wl12xx_clk=\${wl12xx_clk}
-		__EOF__
-		;;
-	beagle_xm)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			optargs=VIDEO_CONSOLE
-			expansion_args=setenv expansion buddy=\${buddy} buddy2=\${buddy2} camera=\${camera} wl12xx_clk=\${wl12xx_clk}
-		__EOF__
-		;;
-	mx51evk|mx53loco)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			optargs=VIDEO_CONSOLE
-			expansion_args=setenv expansion
-		__EOF__
-		;;
-	panda)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			optargs=VIDEO_CONSOLE
-			expansion_args=setenv expansion buddy=\${buddy}
-		__EOF__
-		;;
-	bone)
-		cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-			expansion_args=setenv expansion ip=\${ip_method}
-		__EOF__
-		;;
-	esac
-
-	cat >> ${TEMPDIR}/bootscripts/normal.cmd <<-__EOF__
-		${conf_entrypt}=run boot_ftd; run device_args; ${conf_bootcmd} ${conf_loadaddr} ${conf_initrdaddr}:\${initrd_size} ${conf_fdtaddr}
-		#
-	__EOF__
-}
-
-tweak_boot_scripts () {
-	unset KMS_OVERRIDE
-
-	ALL="*.cmd"
-	#Set the Serial Console
-	sed -i -e 's:SERIAL_CONSOLE:'$SERIAL_CONSOLE':g' ${TEMPDIR}/bootscripts/${ALL}
-
-	#Set filesystem type
-	sed -i -e 's:FINAL_FSTYPE:'$ROOTFS_TYPE':g' ${TEMPDIR}/bootscripts/${ALL}
-
-	if [ "${USE_KMS}" ] && [ ! "${SERIAL_MODE}" ] ; then
-		#optargs=VIDEO_CONSOLE
-		sed -i -e 's:VIDEO_CONSOLE:console=tty0:g' ${TEMPDIR}/bootscripts/${ALL}
-
-		if [ "${KMS_OVERRIDE}" ] ; then
-			sed -i -e 's/VIDEO_DISPLAY/'${KMS_VIDEOA}:${KMS_VIDEO_RESOLUTION}'/g' ${TEMPDIR}/bootscripts/${ALL}
-		else
-			sed -i -e 's:VIDEO_DISPLAY::g' ${TEMPDIR}/bootscripts/${ALL}
-		fi
-	fi
-
-	if [ "${SERIAL_MODE}" ] ; then
-		#In pure serial mode, remove all traces of VIDEO
-		if [ ! "${USE_KMS}" ] ; then
-			sed -i -e 's:UENV_FB::g' ${TEMPDIR}/bootscripts/${ALL}
-			sed -i -e 's:UENV_TIMING::g' ${TEMPDIR}/bootscripts/${ALL}
-		fi
-		sed -i -e 's:VIDEO_DISPLAY ::g' ${TEMPDIR}/bootscripts/${ALL}
-
-		#optargs=VIDEO_CONSOLE -> optargs=
-		sed -i -e 's:VIDEO_CONSOLE::g' ${TEMPDIR}/bootscripts/${ALL}
-	fi
-}
-
-setup_bootscripts () {
-	mkdir -p ${TEMPDIR}/bootscripts/
-	boot_uenv_txt_template
-	tweak_boot_scripts
 }
 
 drive_error_ro () {
@@ -461,12 +255,13 @@ unmount_all_drive_partitions () {
 	done
 
 	echo "Zeroing out Partition Table"
-	dd if=/dev/zero of=${media} bs=1M count=16 || drive_error_ro
+	dd if=/dev/zero of=${media} bs=1M count=100 || drive_error_ro
+	sync
+	dd if=${media} of=/dev/null bs=1M count=100
 	sync
 }
 
 sfdisk_partition_layout () {
-	#Generic boot partition created by sfdisk
 	echo ""
 	echo "Using sfdisk to create partition layout"
 	echo "-----------------------------"
@@ -479,12 +274,25 @@ sfdisk_partition_layout () {
 	sync
 }
 
+sfdisk_single_partition_layout () {
+	echo ""
+	echo "Using sfdisk to create partition layout"
+	echo "-----------------------------"
+
+	LC_ALL=C sfdisk --force --in-order --Linux --unit M "${media}" <<-__EOF__
+		${conf_boot_startmb},,${sfdisk_fstype},-
+	__EOF__
+
+	sync
+}
+
 dd_uboot_boot () {
 	#For: Freescale: i.mx5/6 Devices
 	echo ""
 	echo "Using dd to place bootloader on drive"
 	echo "-----------------------------"
 	dd if=${TEMPDIR}/dl/${UBOOT} of=${media} seek=${dd_uboot_seek} bs=${dd_uboot_bs}
+	bootloader_installed=1
 }
 
 dd_spl_uboot_boot () {
@@ -498,28 +306,20 @@ dd_spl_uboot_boot () {
 }
 
 format_partition_error () {
-	echo "LC_ALL=C ${mkfs} ${media_prefix}1 ${mkfs_label}"
-	echo "LC_ALL=C mkfs.${ROOTFS_TYPE} ${media_prefix}2 ${ROOTFS_LABEL}"
+	echo "LC_ALL=C ${mkfs} ${mkfs_partition} ${mkfs_label}"
 	echo "Failure: formating partition"
 	exit
 }
 
+format_partition () {
+	echo "Formating with: [${mkfs} ${mkfs_partition} ${mkfs_label}]"
+	echo "-----------------------------"
+	LC_ALL=C ${mkfs} ${mkfs_partition} ${mkfs_label} || format_partition_error
+	sync
+}
+
 format_boot_partition () {
-	echo "Formating Boot Partition"
-	echo "-----------------------------"
-	LC_ALL=C ${mkfs} ${media_prefix}1 ${mkfs_label} || format_partition_error
-	sync
-}
-
-format_rootfs_partition () {
-	echo "Formating rootfs Partition as ${ROOTFS_TYPE}"
-	echo "-----------------------------"
-	LC_ALL=C mkfs.${ROOTFS_TYPE} ${media_prefix}2 -L ${ROOTFS_LABEL} || format_partition_error
-	sync
-}
-
-create_partitions () {
-	unset bootloader_installed
+	mkfs_partition="${media_prefix}${media_boot_partition}"
 
 	if [ "x${conf_boot_fstype}" = "xfat" ] ; then
 		mount_partition_format="vfat"
@@ -531,13 +331,43 @@ create_partitions () {
 		mkfs_label="-L ${BOOT_LABEL}"
 	fi
 
+	format_partition
+}
+
+format_rootfs_partition () {
+	mkfs="mkfs.${ROOTFS_TYPE}"
+	mkfs_partition="${media_prefix}${media_rootfs_partition}"
+	mkfs_label="-L ${ROOTFS_LABEL}"
+
+	format_partition
+
+	if [ "x${build_img_file}" = "xenable" ] ; then
+		rootfs_drive="${conf_root_device}p${media_rootfs_partition}"
+	else
+		unset rootfs_uuid
+		rootfs_uuid=$(/sbin/blkid -c /dev/null -s UUID -o value ${mkfs_partition} || true)
+		if [ ! "x${rootfs_uuid}" = "x" ] ; then
+			rootfs_drive="UUID=${rootfs_uuid}"
+		else
+			rootfs_drive="${conf_root_device}p${media_rootfs_partition}"
+		fi
+	fi
+}
+
+create_partitions () {
+	unset bootloader_installed
+
+	media_boot_partition=1
+	media_rootfs_partition=2
+
 	case "${bootloader_location}" in
 	fatfs_boot)
 		sfdisk_partition_layout
 		;;
 	dd_uboot_boot)
 		dd_uboot_boot
-		sfdisk_partition_layout
+		sfdisk_single_partition_layout
+		media_rootfs_partition=1
 		;;
 	dd_spl_uboot_boot)
 		dd_spl_uboot_boot
@@ -553,7 +383,7 @@ create_partitions () {
 	LC_ALL=C fdisk -l "${media}"
 	echo "-----------------------------"
 
-	if [ "${build_img_file}" ] ; then
+	if [ "x${build_img_file}" = "xenable" ] ; then
 		media_loop=$(losetup -f || true)
 		if [ ! "${media_loop}" ] ; then
 			echo "losetup -f failed"
@@ -570,7 +400,7 @@ create_partitions () {
 		sleep 1
 		sync
 		test_loop=$(echo ${media_loop} | awk -F'/' '{print $3}')
-		if [ -e /dev/mapper/${test_loop}p1 ] && [ -e /dev/mapper/${test_loop}p2 ] ; then
+		if [ -e /dev/mapper/${test_loop}p${media_boot_partition} ] && [ -e /dev/mapper/${test_loop}p${media_rootfs_partition} ] ; then
 			media_prefix="/dev/mapper/${test_loop}p"
 		else
 			ls -lh /dev/mapper/
@@ -581,32 +411,24 @@ create_partitions () {
 		partprobe ${media}
 	fi
 
-	format_boot_partition
-	format_rootfs_partition
+	if [ "x${media_boot_partition}" = "x${media_rootfs_partition}" ] ; then
+		mount_partition_format="${ROOTFS_TYPE}"
+		format_rootfs_partition
+	else
+		format_boot_partition
+		format_rootfs_partition
+	fi
 }
 
 boot_git_tools () {
-	if [ ! "${offline}" ] && [ ! "${bborg_production}" ] ; then
-		echo "Debug: Adding Useful scripts from: https://github.com/RobertCNelson/tools"
-		echo "-----------------------------"
-		mkdir -p ${TEMPDIR}/disk/tools
-		git clone git://github.com/RobertCNelson/tools.git ${TEMPDIR}/disk/tools || true
-		if [ ! -f ${TEMPDIR}/disk/tools/.git/config ] ; then
-			echo "Trying via http:"
-			git clone https://github.com/RobertCNelson/tools.git ${TEMPDIR}/disk/tools || true
-		fi
-	fi
-
 	if [ ! "${offline}" ] && [ "${bborg_production}" ] ; then
-		case "${SYSTEM}" in
-		bone|bone_dtb)
+
+		if [ "x${conf_board}" = "xam335x_boneblack" ] || [ "x${conf_board}" = "xam335x_evm" ] ; then
+
 			echo "Debug: Adding BeagleBone drivers from: https://github.com/beagleboard/beaglebone-getting-started"
 			#Not planning to change these too often, once pulled, remove .git stuff...
 			mkdir -p ${TEMPDIR}/drivers/
-			git clone git://github.com/beagleboard/beaglebone-getting-started.git ${TEMPDIR}/drivers/ --depth 1
-			if [ ! -f ${TEMPDIR}/drivers/.git/config ] ; then
-				git clone https://github.com/beagleboard/beaglebone-getting-started.git ${TEMPDIR}/drivers/ --depth 1
-			fi
+			git clone https://github.com/beagleboard/beaglebone-getting-started.git ${TEMPDIR}/drivers/ --depth 1
 			if [ -f ${TEMPDIR}/drivers/.git/config ] ; then
 				rm -rf ${TEMPDIR}/drivers/.git/ || true
 			fi
@@ -638,21 +460,26 @@ boot_git_tools () {
 			if [ -f ${TEMPDIR}/drivers/START.htm ] ; then
 				mv ${TEMPDIR}/drivers/START.htm ${TEMPDIR}/disk/
 			fi
-		;;
-		esac
 
-		wfile=BASIC_START.htm
-		echo "<!DOCTYPE html>" > ${TEMPDIR}/disk/${wfile}
-		echo "<html>" >> ${TEMPDIR}/disk/${wfile}
-		echo "<body>" >> ${TEMPDIR}/disk/${wfile}
-		echo "" >> ${TEMPDIR}/disk/${wfile}
-		echo "<script>" >> ${TEMPDIR}/disk/${wfile}
-		echo "  window.location = \"http://192.168.7.2\";" >> ${TEMPDIR}/disk/${wfile}
-		echo "</script>" >> ${TEMPDIR}/disk/${wfile}
-		echo "" >> ${TEMPDIR}/disk/${wfile}
-		echo "</body>" >> ${TEMPDIR}/disk/${wfile}
-		echo "</html>" >> ${TEMPDIR}/disk/${wfile}
-		echo "" >> ${TEMPDIR}/disk/${wfile}
+		fi
+
+		if [ ! -f ${TEMPDIR}/disk/START.htm ] ; then
+
+			wfile=START.htm
+			echo "<!DOCTYPE html>" > ${TEMPDIR}/disk/${wfile}
+			echo "<html>" >> ${TEMPDIR}/disk/${wfile}
+			echo "<body>" >> ${TEMPDIR}/disk/${wfile}
+			echo "" >> ${TEMPDIR}/disk/${wfile}
+			echo "<script>" >> ${TEMPDIR}/disk/${wfile}
+			echo "  window.location = \"http://192.168.7.2\";" >> ${TEMPDIR}/disk/${wfile}
+			echo "</script>" >> ${TEMPDIR}/disk/${wfile}
+			echo "" >> ${TEMPDIR}/disk/${wfile}
+			echo "</body>" >> ${TEMPDIR}/disk/${wfile}
+			echo "</html>" >> ${TEMPDIR}/disk/${wfile}
+			echo "" >> ${TEMPDIR}/disk/${wfile}
+
+		fi
+
 		sync
 		echo "-----------------------------"
 	fi
@@ -667,21 +494,18 @@ populate_boot () {
 	fi
 
 	partprobe ${media}
-	if ! mount -t ${mount_partition_format} ${media_prefix}1 ${TEMPDIR}/disk; then
+	if ! mount -t ${mount_partition_format} ${media_prefix}${media_boot_partition} ${TEMPDIR}/disk; then
 		echo "-----------------------------"
-		echo "Unable to mount ${media_prefix}1 at ${TEMPDIR}/disk to complete populating Boot Partition"
+		echo "Unable to mount ${media_prefix}${media_boot_partition} at ${TEMPDIR}/disk to complete populating Boot Partition"
 		echo "Please retry running the script, sometimes rebooting your system helps."
 		echo "-----------------------------"
 		exit
 	fi
 
-	mkdir -p ${TEMPDIR}/disk/debug || true
-	mkdir -p ${TEMPDIR}/disk/dtbs || true
-
 	if [ ! "${bootloader_installed}" ] ; then
 		if [ "${spl_name}" ] ; then
-			if [ -f ${TEMPDIR}/dl/${MLO} ] ; then
-				cp -v ${TEMPDIR}/dl/${MLO} ${TEMPDIR}/disk/${spl_name}
+			if [ -f ${TEMPDIR}/dl/${SPL} ] ; then
+				cp -v ${TEMPDIR}/dl/${SPL} ${TEMPDIR}/disk/${spl_name}
 				echo "-----------------------------"
 			fi
 		fi
@@ -694,106 +518,79 @@ populate_boot () {
 		fi
 	fi
 
-	VMLINUZ_FILE=$(ls "${DIR}/" | grep "${select_kernel}" | grep vmlinuz- | head -n 1)
-	if [ "x${VMLINUZ_FILE}" != "x" ] ; then
-		if [ "${USE_UIMAGE}" ] ; then
-			echo "Using mkimage to create uImage"
-			mkimage -A arm -O linux -T kernel -C none -a ${conf_zreladdr} -e ${conf_zreladdr} -n ${select_kernel} -d "${DIR}/${VMLINUZ_FILE}" ${TEMPDIR}/disk/uImage
-			echo "-----------------------------"
+	if [ "x${conf_board}" = "xam335x_boneblack" ] || [ "x${conf_board}" = "xam335x_evm" ] ; then
+
+		if [ ! "x${bbb_old_bootloader_in_emmc}" = "xenable" ] ; then
+			wfile="${TEMPDIR}/disk/bbb-uEnv.txt"
+			echo "##Rename as: uEnv.txt to override old bootloader in eMMC" > ${wfile}
+			echo "##These are needed to be compliant with Angstrom's 2013.06.20 u-boot." >> ${wfile}
 		else
-			echo "Copying Kernel image:"
-			cp -v "${DIR}/${VMLINUZ_FILE}" ${TEMPDIR}/disk/zImage
-			echo "-----------------------------"
+			wfile="${TEMPDIR}/disk/uEnv.txt"
+			echo "##These are needed to be compliant with Angstrom's 2013.06.20 u-boot." > ${wfile}
 		fi
+
+		echo "" >> ${wfile}
+		echo "loadaddr=0x82000000" >> ${wfile}
+		echo "fdtaddr=0x88000000" >> ${wfile}
+		echo "rdaddr=0x88080000" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "initrd_high=0xffffffff" >> ${wfile}
+		echo "fdt_high=0xffffffff" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "##These are needed to be compliant with Debian 2014-05-14 u-boot." > ${wfile}
+		echo "" >> ${wfile}
+		echo "loadximage=load mmc 0:${media_rootfs_partition} \${loadaddr} /boot/vmlinuz-\${uname_r}" >> ${wfile}
+		echo "loadxfdt=load mmc 0:${media_rootfs_partition} \${fdtaddr} /boot/dtbs/\${uname_r}/\${fdtfile}" >> ${wfile}
+		echo "loadxrd=load mmc 0:${media_rootfs_partition} \${rdaddr} /boot/initrd.img-\${uname_r}; setenv rdsize \${filesize}" >> ${wfile}
+		echo "loaduEnvtxt=load mmc 0:${media_rootfs_partition} \${loadaddr} /boot/uEnv.txt ; env import -t \${loadaddr} \${filesize};" >> ${wfile}
+		echo "loadall=run loaduEnvtxt; run loadximage; run loadxrd; run loadxfdt;" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "mmcargs=setenv bootargs console=tty0 console=\${console} \${optargs} \${cape_disable} \${cape_enable} root=\${mmcroot} rootfstype=\${mmcrootfstype} \${cmdline}" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "uenvcmd=run loadall; run mmcargs; bootz \${loadaddr} \${rdaddr}:\${rdsize} \${fdtaddr};" >> ${wfile}
+		echo "" >> ${wfile}
+
+
+		wfile="${TEMPDIR}/disk/nfs-uEnv.txt"
+		echo "##Rename as: uEnv.txt to boot via nfs" > ${wfile}
+		echo "" >> ${wfile}
+		echo "##https://www.kernel.org/doc/Documentation/filesystems/nfs/nfsroot.txt" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "##SERVER: sudo apt-get install tftpd-hpa" >> ${wfile}
+		echo "##SERVER: TFTP_DIRECTORY defined in /etc/default/tftpd-hpa" >> ${wfile}
+		echo "##SERVER: zImage/*.dtb need to be located here:" >> ${wfile}
+		echo "##SERVER: TFTP_DIRECTORY/zImage" >> ${wfile}
+		echo "##SERVER: TFTP_DIRECTORY/dtbs/*.dtb" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "##client_ip needs to be set for u-boot to try booting via nfs" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "client_ip=192.168.1.101" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "#u-boot defaults: uncomment and override where needed" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "#server_ip=192.168.1.100" >> ${wfile}
+		echo "#gw_ip=192.168.1.1" >> ${wfile}
+		echo "#netmask=255.255.255.0" >> ${wfile}
+		echo "#hostname=" >> ${wfile}
+		echo "#device=eth0" >> ${wfile}
+		echo "#autoconf=off" >> ${wfile}
+		echo "#root_dir=/home/userid/targetNFS" >> ${wfile}
+		echo "#nfs_options=,vers=3" >> ${wfile}
+		echo "#nfsrootfstype=ext4 rootwait fixrtc" >> ${wfile}
+		echo "" >> ${wfile}
+
 	fi
 
-	INITRD_FILE=$(ls "${DIR}/" | grep "${select_kernel}" | grep initrd.img- | head -n 1)
-	if [ "x${INITRD_FILE}" != "x" ] ; then
-		echo "Copying Kernel initrd/uInitrd:"
-		if [ "${conf_uboot_CONFIG_SUPPORT_RAW_INITRD}" ] ; then
-			cp -v "${DIR}/${INITRD_FILE}" ${TEMPDIR}/disk/initrd.img
-		else
-			mkimage -A arm -O linux -T ramdisk -C none -a 0 -e 0 -n initramfs -d "${DIR}/${INITRD_FILE}" ${TEMPDIR}/disk/uInitrd
-		fi
-		echo "-----------------------------"
+	if [ -f "${DIR}/ID.txt" ] ; then
+		cp -v "${DIR}/ID.txt" ${TEMPDIR}/disk/ID.txt
 	fi
 
-#	uInitrd_FILE=$(ls "${DIR}/" | grep "${select_kernel}" | grep uInitrd- | head -n 1)
-#	if [ "x${uInitrd_FILE}" != "x" ] ; then
-#		echo "Copying Kernel uInitrd:"
-#		cp -v "${DIR}/${uInitrd_FILE}" ${TEMPDIR}/disk/uInitrd
-#		echo "-----------------------------"
-#	fi
-
-	DTBS_FILE=$(ls "${DIR}/" | grep "${select_kernel}" | grep dtbs | head -n 1)
-	if [ "x${DTBS_FILE}" != "x" ] ; then
-		echo "Copying Device Tree Files:"
-		if [ "x${conf_boot_fstype}" = "xfat" ] ; then
-			tar xfvo "${DIR}/${DTBS_FILE}" -C ${TEMPDIR}/disk/dtbs
-		else
-			tar xfv "${DIR}/${DTBS_FILE}" -C ${TEMPDIR}/disk/dtbs
-		fi
-		echo "-----------------------------"
-	fi
-
-	if [ "${boot_scr_wrapper}" ] ; then
-		cat > ${TEMPDIR}/bootscripts/loader.cmd <<-__EOF__
-			echo "boot.scr -> uEnv.txt wrapper..."
-			setenv conf_boot_fstype ${conf_boot_fstype}
-			\${conf_boot_fstype}load mmc \${mmcdev}:\${mmcpart} \${loadaddr} uEnv.txt
-			env import -t \${loadaddr} \${filesize}
-			run loaduimage
-		__EOF__
-		mkimage -A arm -O linux -T script -C none -a 0 -e 0 -n "wrapper" -d ${TEMPDIR}/bootscripts/loader.cmd ${TEMPDIR}/disk/boot.scr
-	fi
-
-	echo "Copying uEnv.txt based boot scripts to Boot Partition"
-	echo "-----------------------------"
 	if [ ${has_uenvtxt} ] ; then
-		cp -v "${DIR}/uEnv.txt" ${TEMPDIR}/disk/uEnv.txt
-		echo "-----------------------------"
-		cat "${DIR}/uEnv.txt"
-	else
-		cp -v ${TEMPDIR}/bootscripts/normal.cmd ${TEMPDIR}/disk/uEnv.txt
-		echo "-----------------------------"
-		cat ${TEMPDIR}/bootscripts/normal.cmd
+		if [ ! "x${bbb_old_bootloader_in_emmc}" = "xenable" ] ; then
+			cp -v "${DIR}/uEnv.txt" ${TEMPDIR}/disk/uEnv.txt
+			echo "-----------------------------"
+		fi
 	fi
-	echo "-----------------------------"
-
-	#This should be compatible with hwpacks variable names..
-	#https://code.launchpad.net/~linaro-maintainers/linaro-images/
-	cat > ${TEMPDIR}/disk/SOC.sh <<-__EOF__
-		#!/bin/sh
-		format=1.0
-		board=${conf_board}
-
-		bootloader_location=${bootloader_location}
-		dd_spl_uboot_seek=${dd_spl_uboot_seek}
-		dd_spl_uboot_bs=${dd_spl_uboot_bs}
-		dd_uboot_seek=${dd_uboot_seek}
-		dd_uboot_bs=${dd_uboot_bs}
-
-		conf_bootcmd=${conf_bootcmd}
-		boot_script=${boot_script}
-		boot_fstype=${conf_boot_fstype}
-
-		serial_tty=${SERIAL}
-		loadaddr=${conf_loadaddr}
-		initrdaddr=${conf_initrdaddr}
-		zreladdr=${conf_zreladdr}
-		fdtaddr=${conf_fdtaddr}
-		fdtfile=${conf_fdtfile}
-
-		usbnet_mem=${usbnet_mem}
-
-	__EOF__
-
-	if [ "${bbb_flasher}" ] ; then
-		touch ${TEMPDIR}/disk/flash-eMMC.txt
-	fi
-
-	echo "Debug:"
-	cat ${TEMPDIR}/disk/SOC.sh
 
 	boot_git_tools
 
@@ -804,12 +601,78 @@ populate_boot () {
 	echo "Debug: Contents of Boot Partition"
 	echo "-----------------------------"
 	ls -lh ${TEMPDIR}/disk/
+	du -sh ${TEMPDIR}/disk/
 	echo "-----------------------------"
 
 	umount ${TEMPDIR}/disk || true
 
 	echo "Finished populating Boot Partition"
 	echo "-----------------------------"
+}
+
+kernel_detection () {
+	unset has_multi_armv7_kernel
+	unset check
+	check=$(ls "${dir_check}" | grep vmlinuz- | grep armv7 | grep -v lpae | head -n 1)
+	if [ "x${check}" != "x" ] ; then
+		armv7_kernel=$(ls "${dir_check}" | grep vmlinuz- | grep armv7 | grep -v lpae | head -n 1 | awk -F'vmlinuz-' '{print $2}')
+		echo "Debug: image has: v${armv7_kernel}"
+		has_multi_armv7_kernel="enable"
+	fi
+
+	unset has_multi_armv7_lpae_kernel
+	unset check
+	check=$(ls "${dir_check}" | grep vmlinuz- | grep armv7 | grep lpae | head -n 1)
+	if [ "x${check}" != "x" ] ; then
+		armv7_lpae_kernel=$(ls "${dir_check}" | grep vmlinuz- | grep armv7 | grep lpae | head -n 1 | awk -F'vmlinuz-' '{print $2}')
+		echo "Debug: image has: v${armv7_lpae_kernel}"
+		has_multi_armv7_lpae_kernel="enable"
+	fi
+
+	unset has_bone_kernel
+	unset check
+	check=$(ls "${dir_check}" | grep vmlinuz- | grep bone | head -n 1)
+	if [ "x${check}" != "x" ] ; then
+		bone_dt_kernel=$(ls "${dir_check}" | grep vmlinuz- | grep bone | head -n 1 | awk -F'vmlinuz-' '{print $2}')
+		echo "Debug: image has: v${bone_dt_kernel}"
+		has_bone_kernel="enable"
+	fi
+}
+
+kernel_select () {
+	unset select_kernel
+	if [ "x${conf_kernel}" = "xarmv7" ] || [ "x${conf_kernel}" = "x" ] ; then
+		if [ "x${has_multi_armv7_kernel}" = "xenable" ] ; then
+			select_kernel="${armv7_kernel}"
+		fi
+	fi
+
+	if [ "x${conf_kernel}" = "xarmv7_lpae" ] ; then
+		if [ "x${has_multi_armv7_lpae_kernel}" = "xenable" ] ; then
+			select_kernel="${armv7_lpae_kernel}"
+		else
+			if [ "x${has_multi_armv7_kernel}" = "xenable" ] ; then
+				select_kernel="${armv7_kernel}"
+			fi
+		fi
+	fi
+
+	if [ "x${conf_kernel}" = "xbone" ] ; then
+		if [ "x${has_bone_kernel}" = "xenable" ] ; then
+			select_kernel="${bone_dt_kernel}"
+		else
+			if [ "x${has_multi_armv7_kernel}" = "xenable" ] ; then
+				select_kernel="${armv7_kernel}"
+			fi
+		fi
+	fi
+
+	if [ "${select_kernel}" ] ; then
+		echo "Debug: using: v${select_kernel}"
+	else
+		echo "Error: [conf_kernel] not defined [armv7_lpae,armv7,bone]..."
+		exit
+	fi
 }
 
 populate_rootfs () {
@@ -822,24 +685,20 @@ populate_rootfs () {
 	fi
 
 	partprobe ${media}
-	if ! mount -t ${ROOTFS_TYPE} ${media_prefix}2 ${TEMPDIR}/disk; then
+	if ! mount -t ${ROOTFS_TYPE} ${media_prefix}${media_rootfs_partition} ${TEMPDIR}/disk; then
 		echo "-----------------------------"
-		echo "Unable to mount ${media_prefix}2 at ${TEMPDIR}/disk to complete populating rootfs Partition"
+		echo "Unable to mount ${media_prefix}${media_rootfs_partition} at ${TEMPDIR}/disk to complete populating rootfs Partition"
 		echo "Please retry running the script, sometimes rebooting your system helps."
 		echo "-----------------------------"
 		exit
 	fi
 
 	if [ -f "${DIR}/${ROOTFS}" ] ; then
-
-		echo "${DIR}/${ROOTFS}" | grep ".tgz" && DECOM="xzf"
-		echo "${DIR}/${ROOTFS}" | grep ".tar" && DECOM="xf"
-
 		if which pv > /dev/null ; then
-			pv "${DIR}/${ROOTFS}" | tar --numeric-owner --preserve-permissions -${DECOM} - -C ${TEMPDIR}/disk/
+			pv "${DIR}/${ROOTFS}" | tar --numeric-owner --preserve-permissions -xf - -C ${TEMPDIR}/disk/
 		else
 			echo "pv: not installed, using tar verbose to show progress"
-			tar --numeric-owner --preserve-permissions --verbose -${DECOM} "${DIR}/${ROOTFS}" -C ${TEMPDIR}/disk/
+			tar --numeric-owner --preserve-permissions --verbose -xf "${DIR}/${ROOTFS}" -C ${TEMPDIR}/disk/
 		fi
 
 		echo "Transfer of data is Complete, now syncing data to disk..."
@@ -848,153 +707,202 @@ populate_rootfs () {
 		echo "-----------------------------"
 	fi
 
+	dir_check="${TEMPDIR}/disk/boot/"
+	kernel_detection
+	kernel_select
+
+	wfile="${TEMPDIR}/disk/boot/uEnv.txt"
+	echo "#Docs: http://elinux.org/Beagleboard:U-boot_partitioning_layout_2.0" > ${wfile}
+	echo "" >> ${wfile}
+
+	if [ "x${kernel_override}" = "x" ] ; then
+		echo "uname_r=${select_kernel}" >> ${wfile}
+	else
+		echo "uname_r=${kernel_override}" >> ${wfile}
+	fi
+	echo "" >> ${wfile}
+
+	if [ ! "x${conf_fdtfile}" = "x" ] ; then
+		echo "dtb=${conf_fdtfile}" >> ${wfile}
+	else
+		echo "#dtb=" >> ${wfile}
+	fi
+	echo "" >> ${wfile}
+
+	if [ ! "x${rootfs_uuid}" = "x" ] ; then
+		echo "uuid=${rootfs_uuid}" >> ${wfile}
+		echo "" >> ${wfile}
+	fi
+
+	unset kms_video
+	if [ "x${drm_read_edid_broken}" = "xenable" ] ; then
+		drm_device_identifier=${drm_device_identifier:-"HDMI-A-1"}
+		kms_video="video=${drm_device_identifier}:1024x768@60e"
+	fi
+
+	if [ "x${enable_systemd}" = "xenabled" ] ; then
+		echo "cmdline=quiet init=/lib/systemd/systemd ${kms_video}" >> ${wfile}
+	else
+		echo "cmdline=quiet ${kms_video}" >> ${wfile}
+	fi
+	echo "" >> ${wfile}
+
+	if [ "x${conf_board}" = "xam335x_boneblack" ] || [ "x${conf_board}" = "xam335x_evm" ] ; then
+		echo "##Example" >> ${wfile}
+		echo "#cape_disable=capemgr.disable_partno=" >> ${wfile}
+		echo "#cape_enable=capemgr.enable_partno=" >> ${wfile}
+		echo "" >> ${wfile}
+	fi
+
+	if [ ! "x${has_post_uenvtxt}" = "x" ] ; then
+		cat "${DIR}/post-uEnv.txt" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "" >> ${wfile}
+	fi
+
+	if [ "x${conf_board}" = "xam335x_boneblack" ] || [ "x${conf_board}" = "xam335x_evm" ] ; then
+		if [ "x${bbb_flasher}" = "xenable" ] ; then
+			echo "##enable BBB: eMMC Flasher:" >> ${wfile}
+			echo "cmdline=init=/opt/scripts/tools/eMMC/init-eMMC-flasher-v2.sh" >> ${wfile}
+		else
+			echo "##enable BBB: eMMC Flasher:" >> ${wfile}
+			echo "##make sure, these tools are installed: dosfstools rsync" >> ${wfile}
+			echo "#cmdline=init=/opt/scripts/tools/eMMC/init-eMMC-flasher-v2.sh" >> ${wfile}
+		fi
+		echo "" >> ${wfile}
+	fi
+
+	#am335x_boneblack is a custom u-boot to ignore empty factory eeproms...
+	if [ "x${conf_board}" = "xam335x_boneblack" ] ; then
+		board="am335x_evm"
+	else
+		board=${conf_board}
+	fi
+
+	#This should be compatible with hwpacks variable names..
+	#https://code.launchpad.net/~linaro-maintainers/linaro-images/
+	cat > ${TEMPDIR}/disk/boot/SOC.sh <<-__EOF__
+		#!/bin/sh
+		format=1.0
+		board=${board}
+
+		bootloader_location=${bootloader_location}
+		dd_spl_uboot_seek=${dd_spl_uboot_seek}
+		dd_spl_uboot_bs=${dd_spl_uboot_bs}
+		dd_uboot_seek=${dd_uboot_seek}
+		dd_uboot_bs=${dd_uboot_bs}
+
+		conf_bootcmd=${conf_bootcmd}
+		boot_script=${boot_script}
+		boot_fstype=${conf_boot_fstype}
+		conf_boot_startmb=${conf_boot_startmb}
+		conf_boot_endmb=${conf_boot_endmb}
+		sfdisk_fstype=${sfdisk_fstype}
+
+		serial_tty=${SERIAL}
+		fdtfile=${conf_fdtfile}
+
+		usbnet_mem=${usbnet_mem}
+
+	__EOF__
+
 	#RootStock-NG
 	if [ -f ${TEMPDIR}/disk/etc/rcn-ee.conf ] ; then
 		. ${TEMPDIR}/disk/etc/rcn-ee.conf
 
 		mkdir -p ${TEMPDIR}/disk/boot/uboot || true
-		echo "# /etc/fstab: static file system information." > ${TEMPDIR}/disk/etc/fstab
-		echo "#" >> ${TEMPDIR}/disk/etc/fstab
-		echo "# Auto generated by RootStock-NG: setup_sdcard.sh" >> ${TEMPDIR}/disk/etc/fstab
-		echo "#" >> ${TEMPDIR}/disk/etc/fstab
-		if [ "${BTRFS_FSTAB}" ] ; then
-			echo "/dev/mmcblk0p2  /            btrfs  defaults  0  1" >> ${TEMPDIR}/disk/etc/fstab
-		else
-			echo "/dev/mmcblk0p2  /            ${ROOTFS_TYPE}  noatime,errors=remount-ro  0  1" >> ${TEMPDIR}/disk/etc/fstab
-		fi
-		echo "/dev/mmcblk0p1  /boot/uboot  auto  defaults                   0  0" >> ${TEMPDIR}/disk/etc/fstab
-		echo "debugfs         /sys/kernel/debug  debugfs  defaults          0  0" >> ${TEMPDIR}/disk/etc/fstab
+
+		wfile="${TEMPDIR}/disk/etc/fstab"
+		echo "# /etc/fstab: static file system information." > ${wfile}
+		echo "#" >> ${wfile}
+		echo "# Auto generated by RootStock-NG: setup_sdcard.sh" >> ${wfile}
+		echo "#" >> ${wfile}
+		echo "${rootfs_drive}  /  ${ROOTFS_TYPE}  noatime,errors=remount-ro  0  1" >> ${wfile}
+
+		echo "debugfs  /sys/kernel/debug  debugfs  defaults  0  0" >> ${wfile}
 
 		if [ "x${distro}" = "xDebian" ] ; then
+			wfile="${TEMPDIR}/disk/etc/inittab"
 			serial_num=$(echo -n "${SERIAL}"| tail -c -1)
-			echo "" >> ${TEMPDIR}/disk/etc/inittab
-			echo "T${serial_num}:23:respawn:/sbin/getty -L ${SERIAL} 115200 vt102" >> ${TEMPDIR}/disk/etc/inittab
-			echo "" >> ${TEMPDIR}/disk/etc/inittab
-
-			echo "[options]" > ${TEMPDIR}/disk/etc/e2fsck.conf
-			echo "broken_system_clock = true" >> ${TEMPDIR}/disk/etc/e2fsck.conf
+			echo "" >> ${wfile}
+			echo "T${serial_num}:23:respawn:/sbin/getty -L ${SERIAL} 115200 vt102" >> ${wfile}
+			echo "" >> ${wfile}
 		fi
 
 		if [ "x${distro}" = "xUbuntu" ] ; then
-			echo "start on stopped rc RUNLEVEL=[2345]" > ${TEMPDIR}/disk/etc/init/serial.conf
-			echo "stop on runlevel [!2345]" >> ${TEMPDIR}/disk/etc/init/serial.conf
-			echo "" >> ${TEMPDIR}/disk/etc/init/serial.conf
-			echo "respawn" >> ${TEMPDIR}/disk/etc/init/serial.conf
-			echo "exec /sbin/getty 115200 ${SERIAL}" >> ${TEMPDIR}/disk/etc/init/serial.conf
+			wfile="${TEMPDIR}/disk/etc/init/serial.conf"
+			echo "start on stopped rc RUNLEVEL=[2345]" > ${wfile}
+			echo "stop on runlevel [!2345]" >> ${wfile}
+			echo "" >> ${wfile}
+			echo "respawn" >> ${wfile}
+			echo "exec /sbin/getty 115200 ${SERIAL}" >> ${wfile}
 		fi
 
-		echo "# This file describes the network interfaces available on your system" > ${TEMPDIR}/disk/etc/network/interfaces
-		echo "# and how to activate them. For more information, see interfaces(5)." >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "# The loopback network interface" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "auto lo" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "iface lo inet loopback" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "# The primary network interface" >> ${TEMPDIR}/disk/etc/network/interfaces
+		wfile="${TEMPDIR}/disk/etc/network/interfaces"
+		echo "# This file describes the network interfaces available on your system" > ${wfile}
+		echo "# and how to activate them. For more information, see interfaces(5)." >> ${wfile}
+		echo "" >> ${wfile}
+		echo "# The loopback network interface" >> ${wfile}
+		echo "auto lo" >> ${wfile}
+		echo "iface lo inet loopback" >> ${wfile}
+		echo "" >> ${wfile}
+		echo "# The primary network interface" >> ${wfile}
 
 		if [ "${DISABLE_ETH}" ] ; then
-			echo "#auto eth0" >> ${TEMPDIR}/disk/etc/network/interfaces
-			echo "#iface eth0 inet dhcp" >> ${TEMPDIR}/disk/etc/network/interfaces
+			echo "#auto eth0" >> ${wfile}
+			echo "#iface eth0 inet dhcp" >> ${wfile}
 		else
-			echo "auto eth0"  >> ${TEMPDIR}/disk/etc/network/interfaces
-			echo "iface eth0 inet dhcp" >> ${TEMPDIR}/disk/etc/network/interfaces
+			echo "auto eth0"  >> ${wfile}
+			echo "iface eth0 inet dhcp" >> ${wfile}
 		fi
 
 		#if we have systemd & wicd-gtk, diable eth0 in /etc/network/interfaces
 		if [ -f ${TEMPDIR}/disk/lib/systemd/systemd ] ; then
 			if [ -f ${TEMPDIR}/disk/usr/bin/wicd-gtk ] ; then
-				sed -i 's/auto eth0/#auto eth0/g' ${TEMPDIR}/disk/etc/network/interfaces
-				sed -i 's/iface eth0 inet dhcp/#iface eth0 inet dhcp/g' ${TEMPDIR}/disk/etc/network/interfaces
+				sed -i 's/auto eth0/#auto eth0/g' ${wfile}
+				sed -i 's/allow-hotplug eth0/#allow-hotplug eth0/g' ${wfile}
+				sed -i 's/iface eth0 inet dhcp/#iface eth0 inet dhcp/g' ${wfile}
 			fi
 		fi
 
-		echo "# Example to keep MAC address between reboots" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "#hwaddress ether DE:AD:BE:EF:CA:FE" >> ${TEMPDIR}/disk/etc/network/interfaces
+		echo "# Example to keep MAC address between reboots" >> ${wfile}
+		echo "#hwaddress ether DE:AD:BE:EF:CA:FE" >> ${wfile}
 
-		echo "" >> ${TEMPDIR}/disk/etc/network/interfaces
+		echo "" >> ${wfile}
+		echo "# The secondary network interface" >> ${wfile}
+		echo "#auto eth1" >> ${wfile}
+		echo "#iface eth1 inet dhcp" >> ${wfile}
 
-		echo "# WiFi Example" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "#auto wlan0" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "#iface wlan0 inet dhcp" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "#    wpa-ssid \"essid\"" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "#    wpa-psk  \"password\"" >> ${TEMPDIR}/disk/etc/network/interfaces
+		echo "" >> ${wfile}
 
-		echo "" >> ${TEMPDIR}/disk/etc/network/interfaces
+		echo "# WiFi Example" >> ${wfile}
+		echo "#auto wlan0" >> ${wfile}
+		echo "#iface wlan0 inet dhcp" >> ${wfile}
+		echo "#    wpa-ssid \"essid\"" >> ${wfile}
+		echo "#    wpa-psk  \"password\"" >> ${wfile}
 
-		echo "# Ethernet/RNDIS gadget (g_ether)" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "# ... or on host side, usbnet and random hwaddr" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "# Note on some boards, usb0 is automaticly setup with an init script" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "# in that case, to completely disable remove file [run_boot-scripts] from the boot partition" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "iface usb0 inet static" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "    address 192.168.7.2" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "    netmask 255.255.255.0" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "    network 192.168.7.0" >> ${TEMPDIR}/disk/etc/network/interfaces
-		echo "    gateway 192.168.7.1" >> ${TEMPDIR}/disk/etc/network/interfaces
+		echo "" >> ${wfile}
+
+		echo "# Ethernet/RNDIS gadget (g_ether)" >> ${wfile}
+		echo "# ... or on host side, usbnet and random hwaddr" >> ${wfile}
+		echo "# Note on some boards, usb0 is automaticly setup with an init script" >> ${wfile}
+		echo "iface usb0 inet static" >> ${wfile}
+		echo "    address 192.168.7.2" >> ${wfile}
+		echo "    netmask 255.255.255.0" >> ${wfile}
+		echo "    network 192.168.7.0" >> ${wfile}
+		echo "    gateway 192.168.7.1" >> ${wfile}
 
 		if [ ! "${bborg_production}" ] ; then
 			rm -f ${TEMPDIR}/disk/var/www/index.html || true
 		fi
-
-		if [ "${bbb_flasher}" ] ; then
-			if [ -f ${TEMPDIR}/disk/opt/scripts/images/beaglebg-eMMC.jpg ] ; then
-				if [ -f ${TEMPDIR}/disk/opt/desktop-background.jpg ] ; then
-					rm -f ${TEMPDIR}/disk/opt/desktop-background.jpg || true
-				fi
-				cp -v ${TEMPDIR}/disk/opt/scripts/images/beaglebg-eMMC.jpg ${TEMPDIR}/disk/opt/desktop-background.jpg
-			fi
-		fi
-
-#		wfile=var/www/AJAX_terminal.html
-#		echo "<!DOCTYPE html>" > ${TEMPDIR}/disk/${wfile}
-#		echo "<html>" >> ${TEMPDIR}/disk/${wfile}
-#		echo "<body>" >> ${TEMPDIR}/disk/${wfile}
-#		echo "" >> ${TEMPDIR}/disk/${wfile}
-#		echo "<script>" >> ${TEMPDIR}/disk/${wfile}
-#		echo "  var ipaddress = location.hostname;" >> ${TEMPDIR}/disk/${wfile}
-#		echo "  window.location = \"https://\" + ipaddress + \":4200\";" >> ${TEMPDIR}/disk/${wfile}
-#		echo "</script>" >> ${TEMPDIR}/disk/${wfile}
-#		echo "" >> ${TEMPDIR}/disk/${wfile}
-#		echo "</body>" >> ${TEMPDIR}/disk/${wfile}
-#		echo "</html>" >> ${TEMPDIR}/disk/${wfile}
-#		echo "" >> ${TEMPDIR}/disk/${wfile}
 		sync
-
-	else
-
-	if [ "${BTRFS_FSTAB}" ] ; then
-		echo "btrfs selected as rootfs type, modifing /etc/fstab..."
-		sed -i 's/auto   errors=remount-ro/btrfs   defaults/g' ${TEMPDIR}/disk/etc/fstab
-		echo "-----------------------------"
-	fi
-
-	if [ "${DISABLE_ETH}" ] ; then
-		echo "Board Tweak: There is no guarantee eth0 is connected or even exists, modifing /etc/network/interfaces..."
-		sed -i 's/auto eth0/#auto eth0/g' ${TEMPDIR}/disk/etc/network/interfaces
-		sed -i 's/allow-hotplug eth0/#allow-hotplug eth0/g' ${TEMPDIR}/disk/etc/network/interfaces
-		sed -i 's/iface eth0 inet dhcp/#iface eth0 inet dhcp/g' ${TEMPDIR}/disk/etc/network/interfaces
-		echo "-----------------------------"
-	fi
-
-	#So most of the Published Demostration images use ttyO2 by default, but devices like the BeagleBone, mx53loco do not..
-	if [ "x${SERIAL}" != "xttyO2" ] ; then
-		if [ -f ${TEMPDIR}/disk/etc/init/ttyO2.conf ] ; then
-			echo "Ubuntu: Serial Login: fixing /etc/init/ttyO2.conf to use ${SERIAL}"
-			echo "-----------------------------"
-			mv ${TEMPDIR}/disk/etc/init/ttyO2.conf ${TEMPDIR}/disk/etc/init/${SERIAL}.conf
-			sed -i -e 's:ttyO2:'$SERIAL':g' ${TEMPDIR}/disk/etc/init/${SERIAL}.conf
-		elif [ -f ${TEMPDIR}/disk/etc/inittab ] ; then
-			echo "Debian: Serial Login: fixing /etc/inittab to use ${SERIAL}"
-			echo "-----------------------------"
-			sed -i -e 's:ttyO2:'$SERIAL':g' ${TEMPDIR}/disk/etc/inittab
-		fi
-	fi
 
 	fi #RootStock-NG
 
-	case "${SYSTEM}" in
-	bone|bone_dtb)
+	if [ "x${conf_board}" = "xam335x_boneblack" ] || [ "x${conf_board}" = "xam335x_evm" ] ; then
+
 		file="/etc/udev/rules.d/70-persistent-net.rules"
-		echo "" >> ${TEMPDIR}/disk${file}
+		echo "" > ${TEMPDIR}/disk${file}
 		echo "# Auto generated by RootStock-NG: setup_sdcard.sh" >> ${TEMPDIR}/disk${file}
 		echo "# udevadm info -q all -p /sys/class/net/eth0 --attribute-walk" >> ${TEMPDIR}/disk${file}
 		echo "" >> ${TEMPDIR}/disk${file}
@@ -1002,43 +910,38 @@ populate_rootfs () {
 		echo "SUBSYSTEM==\"net\", ACTION==\"add\", DRIVERS==\"?*\", ATTR{dev_id}==\"0x0\", ATTR{type}==\"1\", KERNEL==\"eth*\", NAME=\"eth0\"" >> ${TEMPDIR}/disk${file}
 		echo "" >> ${TEMPDIR}/disk${file}
 
-		;;
-	esac
+	fi
 
 	if [ "${usbnet_mem}" ] ; then
 		echo "vm.min_free_kbytes = ${usbnet_mem}" >> ${TEMPDIR}/disk/etc/sysctl.conf
 	fi
 
 	if [ "${need_wandboard_firmware}" ] ; then
-		wget --no-verbose --directory-prefix="${TEMPDIR}/disk/lib/firmware/brcm/" https://rcn-ee.net/firmware/wandboard/brcmfmac-sdio.txt || true
-		if [ -f "${TEMPDIR}/disk/lib/firmware/brcm/brcmfmac-sdio.txt" ] ; then
-			cp -v "${TEMPDIR}/disk/lib/firmware/brcm/brcmfmac-sdio.txt" "${TEMPDIR}/disk/lib/firmware/brcm/brcmfmac4329-sdio.txt"
-		fi
-		if [ -f "${TEMPDIR}/disk/lib/firmware/brcm/brcmfmac4329-sdio.bin" ] ; then
-			cp -v "${TEMPDIR}/disk/lib/firmware/brcm/brcmfmac4329-sdio.bin" ${TEMPDIR}/disk/lib/firmware/brcm/brcmfmac-sdio.bin
-		fi
+		http_brcm="https://raw.githubusercontent.com/Freescale/meta-fsl-arm-extra/master/recipes-bsp/broadcom-nvram-config/files/wandboard"
+		${dl_quiet} --directory-prefix="${TEMPDIR}/disk/lib/firmware/brcm/" ${http_brcm}/brcmfmac4329-sdio.txt
+		${dl_quiet} --directory-prefix="${TEMPDIR}/disk/lib/firmware/brcm/" ${http_brcm}/brcmfmac4330-sdio.txt
 	fi
 
-	if [ "${CREATE_SWAP}" ] ; then
-		echo "-----------------------------"
-		echo "Extra: Creating SWAP File"
-		echo "-----------------------------"
-		echo "SWAP BUG creation note:"
-		echo "IF this takes a long time(>= 5mins) open another terminal and run dmesg"
-		echo "if theres a nasty error, ctrl-c/reboot and try again... its an annoying bug.."
-		echo "Background: usually occured in days before Ubuntu Lucid.."
-		echo "-----------------------------"
+	if [ "x${build_img_file}" = "xenable" ] ; then
+		git_rcn_boot="https://raw.githubusercontent.com/RobertCNelson/boot-scripts/master/tools"
 
-		SPACE_LEFT=$(df ${TEMPDIR}/disk/ | grep ${media_prefix}2 | awk '{print $4}')
-		let SIZE=${SWAP_SIZE}*1024
-
-		if [ ${SPACE_LEFT} -ge ${SIZE} ] ; then
-			dd if=/dev/zero of=${TEMPDIR}/disk/mnt/SWAP.swap bs=1M count=${SWAP_SIZE}
-			mkswap ${TEMPDIR}/disk/mnt/SWAP.swap
-			echo "/mnt/SWAP.swap  none  swap  sw  0 0" >> ${TEMPDIR}/disk/etc/fstab
-		else
-			echo "FIXME Recovery after user selects SWAP file bigger then whats left not implemented"
+		if [ ! -f ${TEMPDIR}/disk/opt/scripts/tools/grow_partition.sh ] ; then
+			mkdir -p ${TEMPDIR}/disk/opt/scripts/tools/
+			${dl_quiet} --directory-prefix="${TEMPDIR}/disk/opt/scripts/tools/" ${git_rcn_boot}/grow_partition.sh
+			sudo chmod +x ${TEMPDIR}/disk/opt/scripts/tools/grow_partition.sh
 		fi
+
+	fi
+
+	if [ "x${bbb_flasher}" = "xenable" ] ; then
+		git_rcn_boot="https://raw.githubusercontent.com/RobertCNelson/boot-scripts/master/tools"
+
+		if [ ! -f ${TEMPDIR}/disk/opt/scripts/tools/eMMC/init-eMMC-flasher-v2.sh ] ; then
+			mkdir -p ${TEMPDIR}/disk/opt/scripts/tools/eMMC/
+			${dl_quiet} --directory-prefix="${TEMPDIR}/disk/opt/scripts/tools/eMMC/" ${git_rcn_boot}/eMMC/init-eMMC-flasher-v2.sh
+			sudo chmod +x ${TEMPDIR}/disk/opt/scripts/tools/eMMC/init-eMMC-flasher-v2.sh
+		fi
+
 	fi
 
 	cd ${TEMPDIR}/disk/
@@ -1047,7 +950,7 @@ populate_rootfs () {
 	cd "${DIR}/"
 
 	umount ${TEMPDIR}/disk || true
-	if [ "${build_img_file}" ] ; then
+	if [ "x${build_img_file}" = "xenable" ] ; then
 		sync
 		kpartx -d ${media_loop} || true
 		losetup -d ${media_loop} || true
@@ -1063,29 +966,21 @@ populate_rootfs () {
 		cat "${DIR}/user_password.list"
 		echo "-----------------------------"
 	fi
-	if [ "${build_img_file}" ] ; then
+	if [ "x${build_img_file}" = "xenable" ] ; then
 		echo "Image file: ${media}"
-		echo "Compress via: xz -z -7 -v -k ${media}"
 		echo "-----------------------------"
 	fi
 }
 
 check_mmc () {
-	FDISK=$(LC_ALL=C fdisk -l 2>/dev/null | grep "Disk ${media}" | awk '{print $2}')
+	FDISK=$(LC_ALL=C fdisk -l 2>/dev/null | grep "Disk ${media}:" | awk '{print $2}')
 
 	if [ "x${FDISK}" = "x${media}:" ] ; then
 		echo ""
 		echo "I see..."
-		echo "fdisk -l:"
-		LC_ALL=C fdisk -l 2>/dev/null | grep "Disk /dev/" --color=never
 		echo ""
-		if which lsblk > /dev/null ; then
-			echo "lsblk:"
-			lsblk | grep -v sr0
-		else
-			echo "mount:"
-			mount | grep -v none | grep "/dev/" --color=never
-		fi
+		echo "lsblk:"
+		lsblk | grep -v sr0
 		echo ""
 		unset response
 		echo -n "Are you 100% sure, on selecting [${media}] (y/n)? "
@@ -1098,38 +993,10 @@ check_mmc () {
 		echo ""
 		echo "Are you sure? I Don't see [${media}], here is what I do see..."
 		echo ""
-		echo "fdisk -l:"
-		LC_ALL=C fdisk -l 2>/dev/null | grep "Disk /dev/" --color=never
-		echo ""
-		if which lsblk > /dev/null ; then
-			echo "lsblk:"
-			lsblk | grep -v sr0
-		else
-			echo "mount:"
-			mount | grep -v none | grep "/dev/" --color=never
-		fi
+		echo "lsblk:"
+		lsblk | grep -v sr0
 		echo ""
 		exit
-	fi
-}
-
-kernel_detection () {
-	unset HAS_MULTI_ARMV7_KERNEL
-	unset check
-	check=$(ls "${DIR}/" | grep vmlinuz- | grep armv7 | head -n 1)
-	if [ "x${check}" != "x" ] ; then
-		armv7_kernel=$(ls "${DIR}/" | grep vmlinuz- | grep armv7 | awk -F'vmlinuz-' '{print $2}')
-		echo "Debug: image has armv7 multi arch kernel support: v${armv7_kernel}"
-		HAS_MULTI_ARMV7_KERNEL=1
-	fi
-
-	unset HAS_BONE_DT_KERNEL
-	unset check
-	check=$(ls "${DIR}/" | grep vmlinuz- | grep bone | head -n 1)
-	if [ "x${check}" != "x" ] ; then
-		bone_dt_kernel=$(ls "${DIR}/" | grep vmlinuz- | grep bone | awk -F'vmlinuz-' '{print $2}')
-		echo "Debug: image has bone device tree kernel support: v${bone_dt_kernel}"
-		HAS_BONE_DT_KERNEL=1
 	fi
 }
 
@@ -1141,69 +1008,29 @@ process_dtb_conf () {
 	echo "-----------------------------"
 
 	#defaults, if not set...
-	if [ ! "${conf_boot_startmb}" ] ; then
-		conf_boot_startmb="1"
-		echo "info: [conf_boot_startmb] undefined using default value: ${conf_boot_startmb}"
-	fi
-
-	if [ ! "${conf_boot_endmb}" ] ; then
-		conf_boot_endmb="96"
-		echo "info: [conf_boot_endmb] undefined using default value: ${conf_boot_endmb}"
-	fi
+	conf_boot_startmb=${conf_boot_startmb:-"1"}
+	#https://wiki.linaro.org/WorkingGroups/KernelArchived/Projects/FlashCardSurvey
+	conf_boot_endmb=${conf_boot_endmb:-"12"}
+	conf_root_device=${conf_root_device:-"/dev/mmcblk0"}
 
 	#error checking...
+
 	if [ ! "${conf_boot_fstype}" ] ; then
-		echo "Error: [conf_boot_fstype] not defined, stopping..."
+		conf_boot_fstype="${ROOTFS_TYPE}"
+	fi
+
+	case "${conf_boot_fstype}" in
+	fat)
+		sfdisk_fstype="0xE"
+		;;
+	ext2|ext3|ext4)
+		sfdisk_fstype="0x83"
+		;;
+	*)
+		echo "Error: [conf_boot_fstype] not recognized, stopping..."
 		exit
-	else
-		case "${conf_boot_fstype}" in
-		fat)
-			sfdisk_fstype="0xE"
-			;;
-		ext2|ext3|ext4)
-			sfdisk_fstype="0x83"
-			;;
-		*)
-			echo "Error: [conf_boot_fstype] not recognized, stopping..."
-			exit
-			;;
-		esac
-	fi
-
-	if [ "${conf_uboot_CONFIG_CMD_BOOTZ}" ] ; then
-		conf_bootcmd="bootz"
-		conf_normal_kernel_file=zImage
-	else
-		conf_bootcmd="bootm"
-		conf_normal_kernel_file=uImage
-	fi
-
-	if [ "${conf_uboot_CONFIG_SUPPORT_RAW_INITRD}" ] ; then
-		conf_normal_initrd_file=initrd.img
-	else
-		conf_normal_initrd_file=uInitrd
-	fi
-
-	if [ "${conf_uboot_CONFIG_CMD_FS_GENERIC}" ] ; then
-		conf_fileload="load"
-	else
-		if [ "x${conf_boot_fstype}" = "xfat" ] ; then
-			conf_fileload="fatload"
-		else
-			conf_fileload="ext2load"
-		fi
-	fi
-
-	if [ "${conf_uboot_use_uenvcmd}" ] ; then
-		conf_entrypt="uenvcmd"
-	else
-		if [ ! "x${conf_uboot_no_uenvcmd}" = "x" ] ; then
-			conf_entrypt="${conf_uboot_no_uenvcmd}"
-		else
-			echo "Error: [conf_uboot_no_uenvcmd] not defined, stopping..."
-			exit
-		fi
-	fi
+		;;
+	esac
 }
 
 check_dtb_board () {
@@ -1237,137 +1064,6 @@ check_dtb_board () {
 	fi
 }
 
-is_omap () {
-	IS_OMAP=1
-
-	bootloader_location="fatfs_boot"
-	spl_name="MLO"
-	boot_name="u-boot.img"
-
-	SUBARCH="omap"
-
-	boot_script="uEnv.txt"
-
-	SERIAL="ttyO2"
-	SERIAL_CONSOLE="${SERIAL},115200n8"
-
-	VIDEO_CONSOLE="console=tty0"
-
-	#KMS Video Options (overrides when edid fails)
-	# From: ls /sys/class/drm/
-	KMS_VIDEO_RESOLUTION="1280x720"
-	KMS_VIDEOA="video=DVI-D-1"
-	unset KMS_VIDEOB
-}
-
-check_uboot_type () {
-	#New defines for hwpack:
-	conf_bl_http="http://rcn-ee.net/deb/tools/latest"
-	conf_bl_listfile="bootloader-ng"
-
-	unset IN_VALID_UBOOT
-	unset DISABLE_ETH
-	unset USE_UIMAGE
-	unset USE_KMS
-	unset conf_fdtfile
-
-	unset bootloader_location
-	unset spl_name
-	unset boot_name
-	unset bootloader_location
-	unset dd_spl_uboot_seek
-	unset dd_spl_uboot_bs
-	unset dd_uboot_seek
-	unset dd_uboot_bs
-
-	unset boot_scr_wrapper
-	unset usbnet_mem
-
-	unset kms_conn
-
-	case "${UBOOT_TYPE}" in
-	beagle|beagle_bx|beagle_cx)
-		echo "Note: [--dtb omap3-beagle] now replaces [--uboot beagle]"
-		. "${DIR}"/hwpack/omap3-beagle.conf
-		process_dtb_conf
-		;;
-	beagle_xm)
-		echo "Note: [--dtb omap3-beagle-xm] now replaces [--uboot beagle_xm]"
-		. "${DIR}"/hwpack/omap3-beagle-xm.conf
-		process_dtb_conf
-		;;
-	dt-beagle-xm)
-		echo "Note: [--dtb dt-beagle-xm] now replaces [--uboot dt-beagle-xm]"
-		. "${DIR}"/hwpack/dt-beagle-xm.conf
-		process_dtb_conf
-		;;
-	bone|bone_dtb)
-		SYSTEM="bone"
-		is_omap
-		SERIAL="ttyO0"
-		SERIAL_CONSOLE="${SERIAL},115200n8"
-
-		unset KMS_VIDEOA
-
-		#just to disable the omapfb stuff..
-		USE_KMS=1
-		kms_conn="HDMI-A-1"
-
-		. "${DIR}"/hwpack/beaglebone.conf
-		process_dtb_conf
-
-		select_kernel="${bone_dt_kernel}"
-		;;
-	boneblack_flasher)
-		SYSTEM="bone"
-		is_omap
-		SERIAL="ttyO0"
-		SERIAL_CONSOLE="${SERIAL},115200n8"
-
-		unset KMS_VIDEOA
-
-		#just to disable the omapfb stuff..
-		USE_KMS=1
-		kms_conn="HDMI-A-1"
-
-		. "${DIR}"/hwpack/beaglebone.conf
-		process_dtb_conf
-
-		conf_board="am335x_boneblack"
-		select_kernel="${bone_dt_kernel}"
-		;;
-	panda)
-		echo "Note: [--dtb omap4-panda] now replaces [--uboot panda]"
-		. "${DIR}"/hwpack/omap4-panda.conf
-		process_dtb_conf
-		;;
-	panda_es)
-		echo "Note: [--dtb omap4-panda-es] now replaces [--uboot panda_es]"
-		. "${DIR}"/hwpack/omap4-panda-es.conf
-		process_dtb_conf
-		;;
-	mx51evk)
-		echo "Note: [--dtb imx51-babbage] now replaces [--uboot mx51evk]"
-		. "${DIR}"/hwpack/imx51-babbage.conf
-		process_dtb_conf
-		;;
-	mx53loco)
-		echo "Note: [--dtb imx53-qsb] now replaces [--uboot mx53loco]"
-		. "${DIR}"/hwpack/imx53-qsb.conf
-		process_dtb_conf
-		;;
-	*)
-		IN_VALID_UBOOT=1
-		cat <<-__EOF__
-			-----------------------------
-			ERROR: This script does not currently recognize the selected: [--uboot ${UBOOT_TYPE}] option..
-			-----------------------------
-		__EOF__
-		exit
-		;;
-	esac
-}
-
 usage () {
 	echo "usage: sudo $(basename $0) --mmc /dev/sdX --dtb <dev board>"
 	#tabed to match 
@@ -1397,7 +1093,6 @@ checkparm () {
 	fi
 }
 
-IN_VALID_UBOOT=1
 error_invalid_dtb=1
 
 # parse commandline options
@@ -1429,7 +1124,7 @@ while [ ! -z "$1" ] ; do
 		name=$(echo ${imagename} | awk -F '.img' '{print $1}')
 		imagename="${name}-1gb.img"
 		media="${DIR}/${imagename}"
-		build_img_file=1
+		build_img_file="enable"
 		check_root
 		if [ -f "${media}" ] ; then
 			rm -rf "${media}" || true
@@ -1446,7 +1141,7 @@ while [ ! -z "$1" ] ; do
 		name=$(echo ${imagename} | awk -F '.img' '{print $1}')
 		imagename="${name}-2gb.img"
 		media="${DIR}/${imagename}"
-		build_img_file=1
+		build_img_file="enable"
 		check_root
 		if [ -f "${media}" ] ; then
 			rm -rf "${media}" || true
@@ -1463,7 +1158,7 @@ while [ ! -z "$1" ] ; do
 		name=$(echo ${imagename} | awk -F '.img' '{print $1}')
 		imagename="${name}-4gb.img"
 		media="${DIR}/${imagename}"
-		build_img_file=1
+		build_img_file="enable"
 		check_root
 		if [ -f "${media}" ] ; then
 			rm -rf "${media}" || true
@@ -1471,15 +1166,10 @@ while [ ! -z "$1" ] ; do
 		#FIXME: (should fit most 4Gb microSD cards)
 		dd if=/dev/zero of="${media}" bs=1024 count=0 seek=$[1024*3700]
 		;;
-	--uboot)
-		checkparm $2
-		UBOOT_TYPE="$2"
-		kernel_detection
-		check_uboot_type
-		;;
 	--dtb)
 		checkparm $2
 		dtb_board="$2"
+		dir_check="${DIR}/"
 		kernel_detection
 		check_dtb_board
 		;;
@@ -1495,11 +1185,6 @@ while [ ! -z "$1" ] ; do
 		checkparm $2
 		ROOTFS_LABEL="$2"
 		;;
-	--swap_file)
-		checkparm $2
-		SWAP_SIZE="$2"
-		CREATE_SWAP=1
-		;;
 	--spl)
 		checkparm $2
 		LOCAL_SPL="$2"
@@ -1514,16 +1199,24 @@ while [ ! -z "$1" ] ; do
 		USE_BETA_BOOTLOADER=1
 		;;
 	--bbb-flasher)
-		bbb_flasher=1
+		bbb_flasher="enable"
 		;;
 	--beagleboard.org-production)
 		bborg_production=1
+		conf_boot_endmb="96"
+		;;
+	--bbb-old-bootloader-in-emmc)
+		bbb_old_bootloader_in_emmc="enable"
 		;;
 	--enable-systemd)
 		enable_systemd="enabled"
 		;;
 	--offline)
 		offline=1
+		;;
+	--kernel)
+		checkparm $2
+		kernel_override="$2"
 		;;
 	esac
 	shift
@@ -1535,36 +1228,16 @@ if [ ! "${media}" ] ; then
 fi
 
 if [ "${error_invalid_dtb}" ] ; then
-	if [ "${IN_VALID_UBOOT}" ] ; then
-		echo "-----------------------------"
-		echo "ERROR: --uboot/--dtb undefined"
-		echo "-----------------------------"
-		usage
-	fi
+	echo "-----------------------------"
+	echo "ERROR: --dtb undefined"
+	echo "-----------------------------"
+	usage
 fi
 
 if ! is_valid_rootfs_type ${ROOTFS_TYPE} ; then
 	echo "ERROR: ${ROOTFS_TYPE} is not a valid root filesystem type"
 	echo "Valid types: ${VALID_ROOTFS_TYPES}"
 	exit
-fi
-
-unset BTRFS_FSTAB
-if [ "x${ROOTFS_TYPE}" = "xbtrfs" ] ; then
-	unset NEEDS_COMMAND
-	check_for_command mkfs.btrfs btrfs-tools
-
-	if [ "${NEEDS_COMMAND}" ] ; then
-		echo ""
-		echo "Your system is missing the btrfs dependency needed for this particular target."
-		echo "Ubuntu/Debian: sudo apt-get install btrfs-tools"
-		echo "Fedora: as root: yum install btrfs-progs"
-		echo "Gentoo: emerge btrfs-progs"
-		echo ""
-		exit
-	fi
-
-	BTRFS_FSTAB=1
 fi
 
 find_issue
@@ -1578,10 +1251,10 @@ if [ "${spl_name}" ] || [ "${boot_name}" ] ; then
 	fi
 fi
 
-setup_bootscripts
-if [ ! "${build_img_file}" ] ; then
+if [ ! "x${build_img_file}" = "xenable" ] ; then
 	unmount_all_drive_partitions
 fi
 create_partitions
 populate_boot
 populate_rootfs
+#

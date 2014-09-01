@@ -3,7 +3,7 @@ Scripts to support customized image generation for many arm systems
 BeagleBoard branch:
 ------------
 
-    git clone git://github.com/beagleboard/image-builder.git
+    git clone https://github.com/beagleboard/image-builder.git
 
 Images:
 
@@ -12,13 +12,18 @@ Images:
 
 Flasher:
 
-    sudo ./setup_sdcard.sh --img BBB-eMMC-flasher-debian-7.2-2013-11-21 --uboot bone --beagleboard.org-production --bbb-flasher
-    xz -z -7 -v BBB-eMMC-flasher-debian-7.2-2013-11-21-2gb.img
+    sudo ./setup_sdcard.sh --img BBB-eMMC-flasher-debian-7.X-YYYY-MM-DD --uboot bone \
+    --beagleboard.org-production --bbb-flasher --boot_label BEAGLE_BONE \
+    --rootfs_label eMMC-Flasher --enable-systemd
 
-4GB, microSD:
+    xz -z -7 -v BBB-eMMC-flasher-debian-7.X-YYYY-MM-DD-2gb.img
 
-    sudo ./setup_sdcard.sh --img-4gb BBB-debian-7.2-2013-11-26 --uboot bone --beagleboard.org-production
-    xz -z -7 -v BBB-debian-7.2-2013-11-21-4gb.img
+2GB, microSD:
+
+    sudo ./setup_sdcard.sh --img bone-debian-7.X-YYYY-MM-DD --uboot bone \
+    --beagleboard.org-production --boot_label BEAGLE_BONE --enable-systemd
+
+    xz -z -7 -v bone-debian-7.X-YYYY-MM-DD-2gb.img
 
 Bug Tracker:
 
@@ -26,23 +31,45 @@ Bug Tracker:
 
 Release Process:
 
-    bb.org-vYEAR.MONTH.DAY
-    git tag -a bb.org-v2014.01.10 -m 'bb.org-v2014.01.10'
+    bb.org-vYYYY.MM.DD
+    git tag -a bb.org-vYYYY.MM.DD -m 'bb.org-vYYYY.MM.DD'
     git push origin --tags
 
 Master branch:
 ------------
 
-    git clone git://github.com/RobertCNelson/omap-image-builder
+    git clone https://github.com/RobertCNelson/omap-image-builder
 
-Images:
+eewiki.net: Debian Stable (armel) minfs:
 
-    ./eewiki_base_image.sh
-    ./eewiki_barefs_image.sh
-    http://eewiki.net/display/linuxonarm/Home
+    ./RootStock-NG.sh -c eewiki_minfs_debian_stable_armel
 
-    ./rcn-ee_image.sh
+eewiki.net: Debian Stable (armhf) minfs:
+
+    ./RootStock-NG.sh -c eewiki_minfs_debian_stable_armhf
+
+eewiki.net: Ubuntu Stable (armhf) minfs:
+
+    ./RootStock-NG.sh -c eewiki_minfs_ubuntu_stable_armhf
+
+eewiki.net: Debian Stable (armel) barefs:
+
+    ./RootStock-NG.sh -c eewiki_bare_debian_stable_armel
+
+eewiki.net: Debian Stable (armhf) barefs:
+
+    ./RootStock-NG.sh -c eewiki_bare_debian_stable_armhf
+
+elinux.org: Debian Images:
+
+    ./RootStock-NG.sh -c rcn-ee_console_ubuntu_stable_armhf
+    ./RootStock-NG.sh -c rcn-ee_console_ubuntu_testing_armhf
     http://elinux.org/BeagleBoardUbuntu#Demo_Image
+
+elinux.org: Ubuntu Images:
+
+    ./RootStock-NG.sh -c rcn-ee_console_debian_stable_armhf
+    ./RootStock-NG.sh -c rcn-ee_console_debian_testing_armhf
     http://elinux.org/BeagleBoardDebian#Demo_Image
 
 Release Process:

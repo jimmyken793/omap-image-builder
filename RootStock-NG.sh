@@ -24,6 +24,7 @@ system=$(uname -n)
 HOST_ARCH=$(uname -m)
 TIME=$(date +%Y-%m-%d)
 
+OIB_DIR="$( cd "$(dirname "$0")" ; pwd -P )" 
 DIR="$PWD"
 mkdir -p ${DIR}/ignore
 
@@ -38,66 +39,34 @@ generic_git () {
 	fi
 }
 
-setup_git_trees () {
+update_git () {
+	if [ -f ${DIR}/git/${git_project_name}/.git/config ] ; then
+		cd ${DIR}/git/${git_project_name}/
+		git pull --rebase || true
+		cd -
+	fi
+}
+
+git_trees () {
 	if [ ! -d ${DIR}/git/ ] ; then
 		mkdir -p ${DIR}/git/
 	fi
 
 	git_project_name="linux-firmware"
-	git_clone_address="git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git"
+	git_clone_address="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git"
 	generic_git
-
-	git_project_name="am33x-cm3"
-	git_clone_address="git://arago-project.org/git/projects/am33x-cm3.git"
-	generic_git
-}
-
-run_project () {
-	#Mininum:
-	#linux-image*.deb
-	#Optional:
-	#3.7.6-x8-dtbs.tar.gz
-	#3.7.6-x8-firmware.tar.gz
-	chroot_KERNEL_HTTP_DIR="${mirror}/${release}-${dpkg_arch}/v3.7.6-x8/ ${mirror}/${release}-${dpkg_arch}/v3.2.33-psp26/ ${mirror}/${release}-${dpkg_arch}/v3.8.0-rc6-bone3/"
-
-	tempdir=$(mktemp -d -p ${DIR}/ignore)
-
-	cat > ${DIR}/.project <<-__EOF__
-		tempdir="${tempdir}"
-		export_filename="${export_filename}"
-
-		distro="${distro}"
-		release="${release}"
-		dpkg_arch="${dpkg_arch}"
-
-		deb_mirror="${deb_mirror}"
-		deb_components="${deb_components}"
-
-		apt_proxy="${apt_proxy}"
-		base_pkg_list="${base_pkg_list}"
-
-		image_hostname="${image_hostname}"
-
-		user_name="${user_name}"
-		full_name="${full_name}"
-		password="${password}"
-
-		chroot_ENABLE_DEB_SRC="${chroot_ENABLE_DEB_SRC}"
-
-		chroot_KERNEL_HTTP_DIR="${chroot_KERNEL_HTTP_DIR}"
-
-	__EOF__
-
-	/bin/bash -e "${DIR}/scripts/install_dependencies.sh" || { exit 1 ; }
-	/bin/sh -e "${DIR}/scripts/debootstrap.sh" || { exit 1 ; }
-	/bin/sh -e "${DIR}/scripts/chroot.sh" || { exit 1 ; }
-	sudo rm -rf ${tempdir}/ || true
+	update_git
 }
 
 run_roostock_ng () {
 	if [ ! -f ${DIR}/.project ] ; then
 		echo "error: [.project] file not defined"
 		exit 1
+	else
+		echo "Debug: .project"
+		echo "-----------------------------"
+		cat ${DIR}/.project
+		echo "-----------------------------"
 	fi
 
 	if [ ! "${tempdir}" ] ; then
@@ -105,21 +74,87 @@ run_roostock_ng () {
 		echo "tempdir=\"${tempdir}\"" >> ${DIR}/.project
 	fi
 
-	/bin/bash -e "${DIR}/scripts/install_dependencies.sh" || { exit 1 ; }
-	/bin/sh -e "${DIR}/scripts/debootstrap.sh" || { exit 1 ; }
-	/bin/sh -e "${DIR}/scripts/chroot.sh" || { exit 1 ; }
+	/bin/bash -e "${OIB_DIR}/scripts/install_dependencies.sh" || { exit 1 ; }
+	/bin/sh -e "${OIB_DIR}/scripts/debootstrap.sh" || { exit 1 ; }
+	/bin/sh -e "${OIB_DIR}/scripts/chroot.sh" || { exit 1 ; }
 	sudo rm -rf ${tempdir}/ || true
 }
 
-setup_git_trees
+checkparm () {
+	if [ "$(echo $1|grep ^'\-')" ] ; then
+		echo "E: Need an argument"
+		usage
+	fi
+}
 
-cd ${DIR}/git/linux-firmware
-git pull || true
+check_project_config () {
 
-cd ${DIR}/git/am33x-cm3
-git pull || true
+	if [ ! -d ${DIR}/ignore ] ; then
+		mkdir -p ${DIR}/ignore
+	fi
+	tempdir=$(mktemp -d -p ${DIR}/ignore)
+
+	time=$(date +%Y-%m-%d)
+
+	#/config/${project_config}.conf
+	unset leading_slash
+	leading_slash=$(echo ${project_config} | grep "/" || unset leading_slash)
+	if [ "${leading_slash}" ] ; then
+		project_config=$(echo "${leading_slash##*/}")
+	fi
+
+	#${project_config}.conf
+	project_config=$(echo ${project_config} | awk -F ".conf" '{print $1}')
+	if [ -f ${DIR}/configs/${project_config}.conf ] ; then
+		. ${DIR}/configs/${project_config}.conf
+		export_filename="${deb_distribution}-${release}-${image_type}-${deb_arch}-${time}"
+
+		echo "tempdir=\"${tempdir}\"" > ${DIR}/.project
+		echo "time=\"${time}\"" >> ${DIR}/.project
+		echo "export_filename=\"${export_filename}\"" >> ${DIR}/.project
+		echo "#" >> ${DIR}/.project
+		cat ${DIR}/configs/${project_config}.conf >> ${DIR}/.project
+	else
+		echo "Invalid *.conf"
+		exit
+	fi
+}
+
+check_saved_config () {
+
+	if [ ! -d ${DIR}/ignore ] ; then
+		mkdir -p ${DIR}/ignore
+	fi
+	tempdir=$(mktemp -d -p ${DIR}/ignore)
+
+	if [ ! -f ${DIR}/.project ] ; then
+		echo "Couldn't find .project"
+		exit
+	fi
+}
+
+git_trees
 
 cd ${DIR}/
+
+unset need_to_compress_rootfs
+# parse commandline options
+while [ ! -z "$1" ] ; do
+	case $1 in
+	-h|--help)
+		usage
+		;;
+	-c|--config)
+		checkparm $2
+		project_config="$2"
+		check_project_config
+		;;
+	--saved-config)
+		check_saved_config
+		;;
+	esac
+	shift
+done
 
 run_roostock_ng
 

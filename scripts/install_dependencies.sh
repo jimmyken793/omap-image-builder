@@ -22,7 +22,7 @@
 
 #http://ftp.us.debian.org/debian/pool/main/d/debootstrap/
 #1.0.${minimal_debootstrap}
-minimal_debootstrap="56"
+minimal_debootstrap="60"
 host_arch="$(uname -m)"
 
 debootstrap_is_installed () {
@@ -51,17 +51,17 @@ debootstrap_what_version
 
 if [[ "$test_debootstrap" < "$minimal_debootstrap" ]] ; then
 	echo "Log: Installing minimal debootstrap version: 1.0."${minimal_debootstrap}"..."
-	wget http://rcn-ee.net/mirror/debootstrap/debootstrap_1.0.${minimal_debootstrap}_all.deb
+	wget https://rcn-ee.net/mirror/debootstrap/debootstrap_1.0.${minimal_debootstrap}_all.deb
 	sudo dpkg -i debootstrap_1.0.${minimal_debootstrap}_all.deb
 	rm -rf debootstrap_1.0.${minimal_debootstrap}_all.deb || true
 fi
 
-#added in: 1.0.52
-#if [ ! -f /usr/share/debootstrap/scripts/saucy ] ; then
-#	sudo ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/saucy
-#fi
-
 #added in: 1.0.55
 #if [ ! -f /usr/share/debootstrap/scripts/trusty ] ; then
 #	sudo ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/trusty
+#fi
+
+#added in: 1.0.60
+#if [ ! -f /usr/share/debootstrap/scripts/utopic ] ; then
+#	sudo ln -s /usr/share/debootstrap/scripts/gutsy /usr/share/debootstrap/scripts/utopic
 #fi
