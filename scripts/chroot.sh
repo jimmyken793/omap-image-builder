@@ -147,17 +147,17 @@ chroot_mount () {
 }
 
 chroot_umount () {
-	if [ "$(mount | grep ${tempdir}/dev/pts | awk '{print $3}')" = "${tempdir}/dev/pts" ] ; then
+	# if [ "$(mount | grep ${tempdir}/dev/pts | awk '{print $3}')" = "${tempdir}/dev/pts" ] ; then
 		sudo umount -f ${tempdir}/dev/pts
-	fi
+	# fi
 
-	if [ "$(mount | grep ${tempdir}/proc | awk '{print $3}')" = "${tempdir}/proc" ] ; then
+	# if [ "$(mount | grep ${tempdir}/proc | awk '{print $3}')" = "${tempdir}/proc" ] ; then
 		sudo umount -f ${tempdir}/proc
-	fi
+	# fi
 
-	if [ "$(mount | grep ${tempdir}/sys | awk '{print $3}')" = "${tempdir}/sys" ] ; then
+	# if [ "$(mount | grep ${tempdir}/sys | awk '{print $3}')" = "${tempdir}/sys" ] ; then
 		sudo umount -f ${tempdir}/sys
-	fi
+	# fi
 }
 
 check_defines
@@ -687,11 +687,6 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 		fi
 	}
 
-	install_rvm (){
-		curl -sSL https://get.rvm.io | sudo -Hu ${user_name} bash -s stable
-		sudo -Hu jimmy bash -c "source ~jimmy/.rvm/scripts/rvm;rvm install 2.1.0"
-	}
-
 	#cat /chroot_script.sh
 	is_this_qemu
 	stop_init
@@ -720,8 +715,6 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	else
 		dpkg_package_missing
 	fi
-
-	install_rvm
 	
 	cleanup
 	rm -f /chroot_script.sh || true
