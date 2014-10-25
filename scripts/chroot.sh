@@ -147,17 +147,17 @@ chroot_mount () {
 }
 
 chroot_umount () {
-	if [ "$(mount | grep ${tempdir}/dev/pts | awk '{print $3}')" = "${tempdir}/dev/pts" ] ; then
+	# if [ "$(mount | grep ${tempdir}/dev/pts | awk '{print $3}')" = "${tempdir}/dev/pts" ] ; then
 		sudo umount -f ${tempdir}/dev/pts
-	fi
+	# fi
 
-	if [ "$(mount | grep ${tempdir}/proc | awk '{print $3}')" = "${tempdir}/proc" ] ; then
+	# if [ "$(mount | grep ${tempdir}/proc | awk '{print $3}')" = "${tempdir}/proc" ] ; then
 		sudo umount -f ${tempdir}/proc
-	fi
+	# fi
 
-	if [ "$(mount | grep ${tempdir}/sys | awk '{print $3}')" = "${tempdir}/sys" ] ; then
+	# if [ "$(mount | grep ${tempdir}/sys | awk '{print $3}')" = "${tempdir}/sys" ] ; then
 		sudo umount -f ${tempdir}/sys
-	fi
+	# fi
 }
 
 check_defines
@@ -737,7 +737,7 @@ cat > ${DIR}/chroot_script.sh <<-__EOF__
 	else
 		dpkg_package_missing
 	fi
-
+	
 	cleanup
 	rm -f /chroot_script.sh || true
 __EOF__
