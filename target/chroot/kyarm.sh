@@ -602,7 +602,7 @@ udev_rules (){
 install_rvm (){
 	curl -sSL https://get.rvm.io | sudo -Hu ${rfs_username} bash -s stable
 	echo "gem: --no-ri --no-rdoc" > ~${rfs_username}/.gemrc
-	sudo -Hu ${rfs_username} bash -c "source ~${rfs_username}/.rvm/scripts/rvm;rvm install 2.1.3;gem install geminabox;gem sources -a http://kygem:26598483@gem.kingyoung.com.tw/"
+	sudo -Hu ${rfs_username} bash -c "source ~${rfs_username}/.rvm/scripts/rvm;rvm install 2.1.3;gem install geminabox;gem sources -a http://kygem:26598483@gem.kingyoung.com.tw/;gem install ky-platform"
 }
 
 clone_usb_libs(){
@@ -621,9 +621,9 @@ is_this_qemu
 setup_system
 setup_desktop
 
-clone_usb_libs
-install_libusb
-install_hidapi
+# clone_usb_libs
+# install_libusb
+# install_hidapi
 # install_node_pkgs
 # install_pip_pkgs
 # install_gem_pkgs
@@ -638,6 +638,4 @@ udev_rules
 
 install_rvm
 
-apt-get install -y wicd-curses
-rm -v /etc/resolv.conf
 #
