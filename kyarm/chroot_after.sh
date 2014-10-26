@@ -1,3 +1,3 @@
 #!/bin/sh -e
 
-sudo rm -v /etc/resolv.conf
+sudo rm -fv ${tempdir}/etc/resolv.conf

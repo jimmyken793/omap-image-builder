@@ -614,7 +614,17 @@ clone_usb_libs(){
 	git_clone
 }
 
+install_custom_kernel (){
+	dpkg -i /tmp/linux-headers-${custom_kernel_version}_${custom_kernel_cross}.deb || true
+	dpkg -i /tmp/linux-firmware-image-${custom_kernel_version}_${custom_kernel_cross}.deb || true
+	dpkg -i /tmp/linux-image-${custom_kernel_version}_${custom_kernel_cross}.deb || true
+	dpkg -i /tmp/linux-libc-dev_${custom_kernel_cross}.deb || true
+}
+
+
 is_this_qemu
+
+install_custom_kernel
 
 #install_picky_packages
 
