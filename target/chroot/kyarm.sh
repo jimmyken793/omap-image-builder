@@ -621,6 +621,11 @@ install_custom_kernel (){
 	dpkg -i /tmp/linux-libc-dev_${custom_kernel_cross}.deb || true
 }
 
+compile_tunsip6(){
+	gcc /tmp/tunslip6.c -o /usr/bin/tunslip6
+	chown root.root /usr/bin/tunslip6
+	chmod 4755 /usr/bin/tunslip6
+}
 
 is_this_qemu
 
@@ -645,7 +650,7 @@ install_kernel_modules
 other_source_links
 unsecure_root
 udev_rules
-
+compile_tunsip6
 install_rvm
 
 #
