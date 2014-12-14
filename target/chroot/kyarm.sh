@@ -473,17 +473,17 @@ install_git_repos () {
 
 install_build_pkgs () {
 	cd /opt/
-	#if [ -f /usr/bin/xz ] ; then
-	#	wget https://rcn-ee.net/pkgs/chromium/${chromium_release}-armhf.tar.xz
-	#	if [ -f /opt/${chromium_release}-armhf.tar.xz ] ; then
-	#		tar xf ${chromium_release}-armhf.tar.xz -C /
-	#		rm -rf ${chromium_release}-armhf.tar.xz || true
-	#		echo "${chromium_release} : https://rcn-ee.net/pkgs/chromium/${chromium_release}.tar.xz" >> /opt/source/list.txt
+	if [ -f /usr/bin/xz ] ; then
+		wget https://rcn-ee.net/pkgs/chromium/${chromium_release}-armhf.tar.xz
+		if [ -f /opt/${chromium_release}-armhf.tar.xz ] ; then
+			tar xf ${chromium_release}-armhf.tar.xz -C /
+			rm -rf ${chromium_release}-armhf.tar.xz || true
+			echo "${chromium_release} : https://rcn-ee.net/pkgs/chromium/${chromium_release}.tar.xz" >> /opt/source/list.txt
 
-	#		#link Chromium to /usr/bin/x-www-browser
-	#		update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/chromium 200
-	#	fi
-	#fi
+			#link Chromium to /usr/bin/x-www-browser
+			update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/bin/chromium 200
+		fi
+	fi
 }
 
 # install_custom_kernels () {
@@ -597,12 +597,14 @@ install_hidapi (){
 
 udev_rules (){
 	echo "SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"16c0\", ATTRS{idProduct}==\"*\", MODE:=\"0666\"" >> "/etc/udev/rules.d/40-kingyoung_devices.rules"
+	echo "SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"0617\", ATTRS{idProduct}==\"*\", MODE:=\"0666\"" >> "/etc/udev/rules.d/40-kingyoung_devices.rules"
 }
 
 install_rvm (){
+	sudo -Hu ${rfs_username} bash -c "gpg --keyserver hkp://keys.gnupg.net --recv-keys D39DC0E3"
 	curl -sSL https://get.rvm.io | sudo -Hu ${rfs_username} bash -s stable
 	echo "gem: --no-ri --no-rdoc" > ~${rfs_username}/.gemrc
-	sudo -Hu ${rfs_username} bash -c "source ~${rfs_username}/.rvm/scripts/rvm;rvm install 2.1.3;gem install geminabox;gem sources -a http://kygem:26598483@gem.kingyoung.com.tw/;gem install ky-platform"
+	sudo -Hu ${rfs_username} bash -c "source ~${rfs_username}/.rvm/scripts/rvm;rvm install 2.1.3;gem sources -a http://kygem:26598483@gem.kingyoung.com.tw/;gem install ky-platform;gem install bundler"
 }
 
 clone_usb_libs(){
@@ -627,6 +629,11 @@ compile_tunsip6(){
 	chmod 4755 /usr/bin/tunslip6
 }
 
+setup_custom_services(){
+	update-rc.d ky_supervisor defaults
+	update-rc.d ky_config_writer defaults
+}
+
 is_this_qemu
 
 install_custom_kernel
@@ -642,10 +649,10 @@ setup_desktop
 # install_node_pkgs
 # install_pip_pkgs
 # install_gem_pkgs
-if [ -f /usr/bin/git ] ; then
-	install_git_repos
-fi
-#install_build_pkgs
+# if [ -f /usr/bin/git ] ; then
+# 	install_git_repos
+# fi
+# install_build_pkgs
 install_kernel_modules
 other_source_links
 unsecure_root

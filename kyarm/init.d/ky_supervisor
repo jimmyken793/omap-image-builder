@@ -1,0 +1,42 @@
+#!/bin/bash
+. /lib/lsb/init-functions
+source ~jimmy/.rvm/scripts/rvm
+COMMAND=ky_supervisor
+EXECUTABLE=`which $COMMAND`
+PID_NAME=ky_supervisor
+
+start() {
+        echo "Starting $COMMAND"
+	source ~jimmy/.rvm/scripts/rvm
+	start-stop-daemon --make-pidfile --start --oknodo --background --pidfile "/var/run/"$PID_NAME".pid" --chuid jimmy --chdir ~jimmy/ --startas $EXECUTABLE -- -l supervisor.log
+}
+
+stop() {
+        echo "Stopping $COMMAND"
+	start-stop-daemon --stop --quiet --oknodo --pidfile "/var/run/"$PID_NAME".pid"
+}
+
+restart() {
+        stop
+        start
+}
+
+case "$1" in 
+start)
+        start
+;;
+stop)
+        stop
+;;
+restart)
+        restart
+;;
+status)
+	status_of_proc -p "/var/run/"$PID_NAME".pid" $EXECUTABLE $COMMAND
+;;
+
+*)
+	echo $"Usage: $0 {start|stop|restart|status}"
+	exit 1
+esac
+exit 0 
